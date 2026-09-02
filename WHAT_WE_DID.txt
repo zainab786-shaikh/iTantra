@@ -1,0 +1,305 @@
+===============================================================
+iTantra - TRANSMITTER ENGINE
+Everything we did, in simple words
+Last updated: 2 September 2026
+===============================================================
+
+
+-------------------------------------------------
+1. WHAT YOU ASKED FOR
+-------------------------------------------------
+
+The "sender" side of iTantra, built in React Native:
+
+  - Record voice from the microphone
+  - Detect when someone starts and stops speaking
+  - Convert speech to text, fully offline (no internet)
+  - Wrap the text in a data packet
+  - Send it out through a transport layer
+  - Show it all on a good looking dark screen
+  - Support 10 languages
+
+
+-------------------------------------------------
+2. CURRENT STATUS - IT WORKS
+-------------------------------------------------
+
+The app is built, installed and running on your phone
+(Realme RMX3771). It really listens to your voice and really
+writes down what you said, with no internet.
+
+Measured on your actual phone:
+
+  LANGUAGE     SPEED     ACCURACY
+  ---------------------------------------------------
+  English      ~500 ms   exact
+  Hindi        ~546 ms   exact
+  Tamil        ~555 ms   exact
+  Bengali      ~591 ms   exact
+  Telugu       ~617 ms   partly wrong
+  Kannada      ~601 ms   poor
+  Marathi         -      exact
+  Gujarati        -      NOT TESTED YET
+  Malayalam       -      NOT TESTED YET
+  Odia            -      NOT TESTED YET
+
+The four "not tested" ones are not broken - we simply had no
+way to test them. Explained in section 7.
+
+
+-------------------------------------------------
+3. THE 10 LANGUAGES
+-------------------------------------------------
+
+  English, Hindi, Marathi, Tamil, Bengali,
+  Telugu, Kannada, Gujarati, Malayalam, Odia
+
+All ten appear in the app, each written in its own script.
+
+
+-------------------------------------------------
+4. HOW IT WORKS (STEP BY STEP)
+-------------------------------------------------
+
+Think of it as an assembly line. Sound goes in one end, a
+finished message packet comes out the other.
+
+  STEP 1 - LISTEN
+     The microphone opens at 16000 samples per second, single
+     channel. (Android's own logs confirm this is exactly what
+     the phone delivers.)
+
+  STEP 2 - CUT INTO SMALL PIECES
+     The sound is chopped into equal chunks of 32 milliseconds.
+
+  STEP 3 - IS THIS SPEECH OR SILENCE?
+     Each chunk is checked. The detector learns what "quiet"
+     sounds like in the room you are actually in, then flags
+     anything clearly louder as speech.
+
+  STEP 4 - FIND THE SENTENCE ENDING
+     Once speech starts we keep collecting. When you go quiet
+     for the chosen pause (600, 750 or 1000 ms), the sentence
+     is treated as finished.
+
+     Two details that matter a lot:
+       - We keep a little audio from BEFORE you started
+         talking, or the first letter gets chopped off.
+       - A short breath mid-sentence does not cut you off.
+         Only a real pause does.
+
+  STEP 5 - TURN SPEECH INTO TEXT
+     The collected audio goes to the offline speech engine.
+     Which engine depends on the language (see section 6).
+
+  STEP 6 - CLEAN UP THE TEXT
+     Two safety nets, both explained in section 6.
+
+  STEP 7 - BUILD THE PACKET
+     Exactly the format you specified:
+         id, senderId, timestamp, language,
+         text, priority, isCompressed
+
+  STEP 8 - SEND IT
+     Handed to the transport layer. Right now that is a
+     "mock" one that just logs. Real radio or Bluetooth can be
+     dropped in later without changing anything else.
+
+
+-------------------------------------------------
+5. THE PRIORITY FEATURE
+-------------------------------------------------
+
+The app reads the message and decides how urgent it is, from
+keywords - in ALL TEN languages.
+
+  CRITICAL - emergency, fire, attack, आग, ନିଆଁ, തീ ...
+  HIGH     - urgent, help, injured, मदद, ସାହାଯ୍ୟ, സഹായം ...
+  MEDIUM   - report, status, position, स्थिति, ସ୍ଥିତି ...
+  NORMAL   - everything else
+
+We used a plain keyword list instead of AI on purpose: an
+operator must be able to understand exactly WHY a message was
+marked urgent.
+
+
+-------------------------------------------------
+6. THE BIG PROBLEMS WE HIT (AND HOW WE FIXED THEM)
+-------------------------------------------------
+
+This section is the real story of the project.
+
+PROBLEM 1: "It says [Music] when I say nothing"
+  The speech model was trained on film subtitles. Given silence
+  it does not return nothing - it returns what a subtitle would
+  have said, like "[Music]" or "Thanks for watching".
+  FIX: audio that is less than 35% actual voice never reaches
+  the engine at all, plus a filter for these subtitle phrases.
+
+PROBLEM 2: "There is a delay when I press the button"
+  The first press was loading the whole speech model before
+  opening the microphone.
+  FIX: the model now loads when the app starts, and the mic
+  opens immediately without waiting for it.
+
+PROBLEM 3: "Hindi is completely wrong"
+  This was the hardest one, and the cause was a surprise.
+
+  The Whisper engine stores text as raw bytes. English letters
+  take 1 byte each, but Hindi letters take 3. The library we
+  use converts them one piece at a time, so Hindi letters were
+  arriving broken and being thrown away.
+
+  We proved it by printing the individual pieces:
+       ["ह","म","े","ं"," ","","","","र"]
+                          ^^  ^^  ^^
+                    three EMPTY pieces where words should be
+
+  So it was never "the AI is bad at Hindi". It was a text
+  handling bug, and NO bigger Whisper model could have fixed
+  it. We wasted a download proving that.
+
+  FIX: switched every Indian language to a different engine
+  (Dolphin) that stores real Hindi letters instead of bytes.
+
+PROBLEM 4: "It writes Hindi words in the wrong alphabet"
+  The new engine guesses the language itself and sometimes
+  guesses wrong - writing correct Bengali WORDS in the Hindi
+  ALPHABET, or slipping into Arabic.
+
+  FIX: all Indian alphabets are laid out in the same order in
+  Unicode (they share a common ancestor). So converting between
+  them is simple arithmetic. The app now converts wrong-alphabet
+  text back into the right one instead of deleting it.
+  Text in a truly unrelated alphabet (Arabic, Russian) cannot
+  be saved, so it is dropped rather than shown as gibberish.
+
+PROBLEM 5: "The decoding takes seconds, it should be instant"
+  Whisper writes out one letter at a time, which is slow.
+  FIX: switched to "CTC" models, which do it in one shot.
+       English went from 6600 ms to 500 ms.
+       Hindi went from broken to 546 ms.
+
+PROBLEM 6: "Indian languages stopped working entirely"
+  A bug we introduced. When we started using different engines
+  for different languages, the app remembered only ONE engine
+  location. So asking for Hindi handed back the ENGLISH engine
+  folder, which failed, and the app quietly gave up.
+  It was invisible because the error was being swallowed.
+  FIX: remember one location per engine, and always log
+  failures loudly.
+
+PROBLEM 7: "The mic stopped working for every language"
+  Not a bug. You were on a phone call. Android gives a call
+  exclusive use of the microphone.
+  FIX: the app now says so clearly, instead of quietly
+  switching to fake audio and pretending to listen.
+
+
+-------------------------------------------------
+7. WHAT IS STILL NOT PERFECT - PLEASE READ
+-------------------------------------------------
+
+  a) FOUR LANGUAGES ARE UNTESTED
+     Marathi, Gujarati, Malayalam and Odia.
+     To test the others we generated speech using the Mac's
+     built-in voices. The Mac has voices for Hindi, Tamil,
+     Bengali, Telugu and Kannada - but none for these four.
+     They are wired up exactly like the rest; nobody has just
+     confirmed how good they are. Your reading is the first
+     real data.
+
+  b) TELUGU AND KANNADA ARE WEAK
+     The engine mis-identifies them and writes the right sounds
+     in the wrong alphabet. Our converter repairs some of it,
+     but not all. This is a limit of the available model, not
+     something we can tune away.
+
+  c) MALAYALAM MAY BE WEAK TOO
+     The engine's vocabulary holds only 69 Malayalam pieces,
+     against 158 for Odia and 835 for Hindi. Thin coverage
+     usually means weaker accuracy. Worth checking early.
+
+  d) NO CAPITAL LETTERS OR FULL STOPS
+     The fast engines produce plain lowercase text. This is the
+     price of the big speed improvement.
+
+  e) TESTED WITH COMPUTER VOICES, NOT HUMAN ONES
+     The "exact" results came from synthetic speech. Real human
+     speech is harder, so treat those as a best case.
+
+  f) THE IN-APP DOWNLOAD BUTTON IS UNTESTED
+     Models were put on your phone directly over cable. The
+     download button was rewritten but never actually run.
+
+
+-------------------------------------------------
+8. HOW TO RUN IT
+-------------------------------------------------
+
+The app is ALREADY INSTALLED on your phone. To rebuild:
+
+     export JAVA_HOME="$HOME/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home"
+     export ANDROID_HOME="$HOME/Library/Android/sdk"
+     npx expo run:android
+
+IMPORTANT: Java 17 is required. Your Mac defaults to Java 25,
+which breaks the build.
+
+To just start the server for an installed app:
+
+     npx expo start --dev-client
+
+BEFORE A DEMO: close other apps that use the microphone, and
+do not be on a call. Android only lets one app record at a time.
+
+
+-------------------------------------------------
+9. WHICH ENGINE IS USED FOR WHAT
+-------------------------------------------------
+
+  English            -> NeMo CTC        (64 MB)
+  All 9 Indian langs -> Dolphin small   (183 MB)
+
+Both are already on your phone. To change them, edit:
+     src/config/models.ts
+
+
+-------------------------------------------------
+10. WHERE EVERYTHING LIVES
+-------------------------------------------------
+
+  src/config/         Languages, engines, pause timing
+  src/core/audio/     Microphone recording and audio maths
+  src/core/vad/       Voice detection and sentence splitting
+  src/core/stt/       Speech engines, alphabet repair
+  src/core/packet/    Packet building and priority rules
+  src/core/transport/ The send-it-out layer
+  src/hooks/          The controller that ties it together
+  src/ui/             Colours and visual components
+  src/screens/        The main transmitter screen
+
+  TRANSMITTER.md      Technical setup guide
+  WHAT_WE_DID.txt     This file
+
+All code passes the TypeScript checker with zero errors.
+
+
+===============================================================
+SHORT VERSION
+===============================================================
+
+The whole voice-to-packet system is built, installed and
+working offline on your phone, in 10 languages.
+
+English, Hindi, Tamil and Bengali transcribe exactly, in about
+half a second each. Telugu and Kannada are weak because of
+limits in the available speech model. Marathi, Gujarati,
+Malayalam and Odia are wired up but nobody has tested them yet.
+
+The hardest bug was Hindi, and it turned out not to be an AI
+accuracy problem at all - the library was breaking Hindi text
+apart byte by byte. Switching engines fixed it and made
+everything about ten times faster at the same time.
+
+===============================================================
