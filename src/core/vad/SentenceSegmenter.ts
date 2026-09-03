@@ -204,6 +204,14 @@ export class SentenceSegmenter {
       return;
     }
 
+    // Diagnostic instrumentation (temporary — STT accuracy investigation).
+    // Additive only: no change to segmentation behavior.
+    console.log(
+      `[SttDiag] segment accepted: durationMs=${Math.round(durationMs)} ` +
+        `voicedRatio=${Math.round(voicedRatio * 100)}% forced=${forced} ` +
+        `frames=${frames.length}`
+    );
+
     this.callbacks.onSegment({
       samples: concatFloat32(frames),
       durationMs,

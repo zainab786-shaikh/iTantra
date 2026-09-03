@@ -14,6 +14,7 @@ export class MockTransport implements Transport {
 
   private connected = true;
   private readonly listeners = new Set<(connected: boolean) => void>();
+  private readonly receiveListeners = new Set<(packet: iTantraPacket) => void>();
   /** Every packet handed to this transport, newest last. */
   readonly sent: iTantraPacket[] = [];
 
@@ -37,7 +38,27 @@ export class MockTransport implements Transport {
     console.log(
       `[MockTransport] -> ${packet.priority} ${packet.language} "${packet.text}" (${packet.id})`
     );
+
+    // No real P2P transport exists yet (a separate, later workstream), so
+    // this loops a successfully "sent" packet back to this same device's
+    // receive listeners after a short delay — standing in for a peer
+    // receiving it, so the receiver pipeline (TTS, receiver UI) has
+    // something real to exercise end-to-end on one device.
+    setTimeout(() => {
+      for (const listener of this.receiveListeners) listener(packet);
+    }, 120 + Math.random() * 180);
+
     return true;
+  }
+
+  onPacketReceived(listener: (packet: iTantraPacket) => void): () => void {
+    this.receiveListeners.add(listener);
+    return () => this.receiveListeners.delete(listener);
+  }
+
+  /** Test/demo affordance: inject a packet as if it arrived from a peer, without a real send. */
+  simulateReceive(packet: iTantraPacket): void {
+    for (const listener of this.receiveListeners) listener(packet);
   }
 
   isConnected(): boolean {

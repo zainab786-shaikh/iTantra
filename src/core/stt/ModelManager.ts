@@ -162,7 +162,18 @@ export class ModelManager {
       }
 
       onProgress(100, 'extracting');
-      await extraction.extractTarBz2(archivePath, targetDir, true);
+      // `extraction` is the `react-native-sherpa-onnx/extraction` subpath, which
+      // exports `extractArchive` — not `extractTarBz2`. That name is an internal
+      // helper the subpath imports for its own use and never re-exports; calling
+      // it here threw "undefined is not a function" after every download.
+      const extractResult = await extraction.extractArchive(
+        { modelId: model.id, archivePath, format: 'tar.bz2' },
+        targetDir,
+        { force: true }
+      );
+      if (!extractResult.success) {
+        throw new Error(extractResult.reason ?? 'Extraction failed');
+      }
 
       // The archive contains a top-level directory named after the model, so
       // extracting into targetDir yields exactly finalDir.

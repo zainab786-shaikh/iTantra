@@ -2,67 +2,26 @@ import React, { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PAUSE_PRESETS } from '../../config/vadConfig';
-import type { SttEngineKind } from '../../core/types';
 import { theme } from '../theme';
 
 interface Props {
-  latencyMs: number | null;
-  utteranceMs: number | null;
-  engine: SttEngineKind;
   pauseMs: number;
   onPauseChange: (ms: number) => void;
 }
 
-const ENGINE_LABEL: Record<SttEngineKind, string> = {
-  'sherpa-onnx': 'SHERPA-ONNX',
-  simulated: 'SIMULATED',
-  none: 'IDLE',
-};
-
 /**
- * Compact readouts plus the end-of-speech pause control.
+ * End-of-speech pause control.
  *
- * The pause length is the single tuning knob an operator actually needs in the
- * field — too short clips people mid-sentence, too long feels unresponsive — so
- * it is surfaced here rather than buried in a settings screen.
+ * The pause length is the single tuning knob a user actually needs — too
+ * short clips people mid-sentence, too long feels unresponsive — so it is
+ * surfaced here rather than buried elsewhere. Decode latency and engine name
+ * were dropped: backend diagnostics, not something a normal user acts on.
  */
-function TelemetryStripImpl({
-  latencyMs,
-  utteranceMs,
-  engine,
-  pauseMs,
-  onPauseChange,
-}: Props) {
+function TelemetryStripImpl({ pauseMs, onPauseChange }: Props) {
   return (
     <View style={styles.wrap}>
-      <View style={styles.metrics}>
-        <Metric
-          label="DECODE"
-          value={latencyMs != null ? `${latencyMs}` : '—'}
-          unit={latencyMs != null ? 'ms' : ''}
-          tint={theme.color.primary}
-        />
-        <View style={styles.vline} />
-        <Metric
-          label="UTTERANCE"
-          value={utteranceMs != null ? (utteranceMs / 1000).toFixed(1) : '—'}
-          unit={utteranceMs != null ? 's' : ''}
-          tint={theme.color.live}
-        />
-        <View style={styles.vline} />
-        <Metric
-          label="ENGINE"
-          value={ENGINE_LABEL[engine]}
-          unit=""
-          tint={
-            engine === 'sherpa-onnx' ? theme.color.live : theme.color.warn
-          }
-          small
-        />
-      </View>
-
       <View style={styles.pauseRow}>
-        <Text style={styles.pauseLabel}>END-OF-SPEECH PAUSE</Text>
+        <Text style={styles.pauseLabel}>RESPONSE PAUSE</Text>
         <View style={styles.pauseOptions}>
           {PAUSE_PRESETS.map((preset) => {
             const selected = preset.ms === pauseMs;
@@ -72,12 +31,13 @@ function TelemetryStripImpl({
                 onPress={() => onPauseChange(preset.ms)}
                 accessibilityRole="radio"
                 accessibilityState={{ selected }}
+                accessibilityLabel={`Response pause: ${preset.label}, ${preset.ms} milliseconds`}
                 style={[styles.pauseChip, selected && styles.pauseChipOn]}
               >
                 <Text
                   style={[styles.pauseText, selected && styles.pauseTextOn]}
                 >
-                  {preset.ms}ms
+                  {preset.label}
                 </Text>
               </Pressable>
             );
@@ -88,103 +48,46 @@ function TelemetryStripImpl({
   );
 }
 
-function Metric({
-  label,
-  value,
-  unit,
-  tint,
-  small,
-}: {
-  label: string;
-  value: string;
-  unit: string;
-  tint: string;
-  small?: boolean;
-}) {
-  return (
-    <View style={styles.metric}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <View style={styles.metricValueRow}>
-        <Text
-          style={[
-            styles.metricValue,
-            { color: tint },
-            small && styles.metricValueSmall,
-          ]}
-          numberOfLines={1}
-        >
-          {value}
-        </Text>
-        {unit.length > 0 && <Text style={styles.metricUnit}>{unit}</Text>}
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   wrap: {
     borderRadius: theme.radius.lg,
     borderWidth: 1,
     borderColor: theme.color.hairline,
-    backgroundColor: 'rgba(17, 22, 35, 0.6)',
+    backgroundColor: theme.color.surface,
     overflow: 'hidden',
   },
-  metrics: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  metric: { flex: 1, alignItems: 'center', gap: 4 },
-  metricLabel: {
-    fontSize: 8.5,
-    color: theme.color.textFaint,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-  },
-  metricValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
-  metricValue: {
-    fontSize: 19,
-    fontWeight: '800',
-    fontFamily: theme.font.mono,
-  },
-  metricValueSmall: { fontSize: 11, letterSpacing: 0.6 },
-  metricUnit: { fontSize: 9, color: theme.color.textFaint, fontWeight: '700' },
-  vline: {
-    width: 1,
-    height: 26,
-    backgroundColor: theme.color.hairline,
-  },
   pauseRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderTopWidth: 1,
-    borderTopColor: theme.color.hairline,
-    backgroundColor: 'rgba(10, 13, 22, 0.5)',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   pauseLabel: {
-    fontSize: 8.5,
-    color: theme.color.textFaint,
-    fontWeight: '800',
-    letterSpacing: 1.3,
+    fontSize: 11,
+    color: theme.color.textMuted,
+    fontWeight: '600',
   },
-  pauseOptions: { flexDirection: 'row', gap: 5 },
+  pauseOptions: { flexDirection: 'row', gap: 8 },
   pauseChip: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    flex: 1,
+    minHeight: theme.sizing.touchTarget,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 11,
+    paddingVertical: 8,
     borderRadius: theme.radius.sm,
     borderWidth: 1,
     borderColor: theme.color.hairline,
   },
   pauseChipOn: {
-    borderColor: `${theme.color.primary}77`,
-    backgroundColor: `${theme.color.primary}1A`,
+    borderColor: `${theme.color.accent}88`,
+    backgroundColor: `${theme.color.accent}1F`,
   },
   pauseText: {
-    fontSize: 10,
-    color: theme.color.textFaint,
-    fontWeight: '700',
-    fontFamily: theme.font.mono,
+    fontSize: 11,
+    color: theme.color.textMuted,
+    fontWeight: '600',
   },
-  pauseTextOn: { color: theme.color.primary },
+  pauseTextOn: { color: theme.color.accentStrong, fontWeight: '700' },
 });
 
 export const TelemetryStrip = memo(TelemetryStripImpl);

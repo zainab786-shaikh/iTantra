@@ -132,7 +132,10 @@ export const NEMO_CTC_ENGLISH: SttModelDescriptor = {
   label: 'NeMo CTC (English)',
   modelType: 'nemo_ctc',
   languages: ['en-IN'],
-  approxMb: 64,
+  // The GitHub release asset is 165,685,608 bytes (~158 MB), not 64 — verified
+  // via a HEAD request against the release URL. Only affects the UI's size
+  // label, not the download itself.
+  approxMb: 158,
   preferInt8: true,
   numThreads: 2,
 };

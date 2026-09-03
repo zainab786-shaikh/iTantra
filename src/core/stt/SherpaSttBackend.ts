@@ -159,6 +159,14 @@ export class SherpaSttBackend implements SttBackend {
     await this.load(languageCode);
     if (!this.engine) throw new Error('STT engine unavailable');
 
+    // --- diagnostic instrumentation (temporary — STT accuracy investigation) ---
+    // Additive only: no behavior/threshold/control-flow change. Logs decode
+    // timing and the audio duration actually handed to the model, so we can
+    // tell a genuine model/recognition problem apart from upstream audio
+    // truncation.
+    const audioDurationMs = (samples.length / SAMPLE_RATE) * 1000;
+    const decodeStartedAt = Date.now();
+
     // Float32Array -> number[] happens once per utterance, not per frame, so it
     // stays off the audio hot path.
     const result = await this.engine.transcribeSamples(
@@ -166,9 +174,15 @@ export class SherpaSttBackend implements SttBackend {
       SAMPLE_RATE
     );
 
+    const decodeMs = Date.now() - decodeStartedAt;
+
     console.log(
       `[SherpaSTT] requested="${findLanguage(languageCode).sherpaLang}" ` +
         `reported="${result?.lang ?? ''}" text="${result?.text ?? ''}"`
+    );
+    console.log(
+      `[SttDiag] lang=${languageCode} audioMs=${Math.round(audioDurationMs)} ` +
+        `decodeMs=${decodeMs} rawText="${result?.text ?? ''}"`
     );
 
     const raw = typeof result?.text === 'string' ? result.text.trim() : '';
@@ -186,8 +200,14 @@ export class SherpaSttBackend implements SttBackend {
       );
     }
 
+    console.log(
+      `[SttDiag] lang=${languageCode} finalText="${repair.text}" ` +
+        `rejected=${repair.rejected} transliteratedFrom=${repair.transliteratedFrom ?? 'none'}`
+    );
+
     return {
       text: repair.text,
+      rawText: raw,
       ...(typeof result?.lang === 'string' && result.lang.length > 0
         ? { detectedLanguage: result.lang }
         : {}),

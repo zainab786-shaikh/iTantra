@@ -90,10 +90,16 @@ export function classifyPriority(text: string): PacketPriority {
   return 'NORMAL';
 }
 
-/** Presentation colour per band. */
+/**
+ * Presentation colour per band, matching iTantra Design.md's restrained
+ * palette (kept as literal hex here rather than importing ui/theme, since
+ * core/ intentionally has no dependency on the UI layer) — textMuted /
+ * info / warning / critical, an escalating ladder rather than four
+ * unrelated saturated hues.
+ */
 export const PRIORITY_COLORS: Record<PacketPriority, string> = {
-  NORMAL: '#5EEAD4',
-  MEDIUM: '#FDE047',
-  HIGH: '#FB923C',
-  CRITICAL: '#F87171',
+  NORMAL: '#B5B5B5',
+  MEDIUM: '#72A9D8',
+  HIGH: '#E5B85C',
+  CRITICAL: '#E66B67',
 };

@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: theme.radius.pill,
     borderWidth: 1,
-    backgroundColor: 'rgba(17, 22, 35, 0.7)',
+    backgroundColor: theme.color.surface,
   },
   dotWrap: { width: 10, height: 10, alignItems: 'center', justifyContent: 'center' },
   glow: { position: 'absolute', width: 16, height: 16, borderRadius: 8, opacity: 0.4 },

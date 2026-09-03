@@ -4,6 +4,12 @@ export interface SttTranscription {
   text: string;
   /** Language the decoder actually reported, when it is multilingual. */
   detectedLanguage?: string;
+  /**
+   * Text exactly as the engine returned it, before repairScript() ran.
+   * Diagnostic-only: additive field for accuracy investigation, not consumed
+   * by any production code path.
+   */
+  rawText?: string;
 }
 
 /**

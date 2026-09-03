@@ -40,11 +40,10 @@ export class SimulatedSttBackend implements SttBackend {
     }
     const loudness = Math.round(peak * 100);
 
-    return {
-      text:
-        `[no speech model installed — captured ${seconds}s of your audio ` +
-        `at ${loudness}% peak level, but there is no decoder to read it]`,
-    };
+    const text =
+      `[no speech model installed — captured ${seconds}s of your audio ` +
+      `at ${loudness}% peak level, but there is no decoder to read it]`;
+    return { text, rawText: text };
   }
 
   async dispose(): Promise<void> {

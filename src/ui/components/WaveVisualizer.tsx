@@ -14,10 +14,10 @@ import Animated, {
 
 import { theme } from '../theme';
 
-const BAR_COUNT = 31;
+const BAR_COUNT = 27;
 const BAR_WIDTH = 4;
-const MAX_HEIGHT = 108;
-const MIN_HEIGHT = 5;
+const MAX_HEIGHT = 64;
+const MIN_HEIGHT = 4;
 
 interface Props {
   /** 0..1 input level, written from the audio callback. */
@@ -116,8 +116,9 @@ const Bar = memo(function Bar({
 
     const driven = smoothed.value * envelope * wobble * activeMix.value;
     // The idle shimmer is only damped when inactive, never cut to zero: a row
-    // of dead dots reads as a broken control rather than a standby one.
-    const resting = idleBreath * envelope * (0.42 + 0.58 * activeMix.value);
+    // of dead dots reads as a broken control rather than a standby one. Kept
+    // subtle — this is a status indicator, not a flashy audio visualizer.
+    const resting = idleBreath * envelope * (0.25 + 0.35 * activeMix.value);
     const amplitude = Math.max(driven, resting);
 
     const height = MIN_HEIGHT + amplitude * (MAX_HEIGHT - MIN_HEIGHT);
@@ -125,14 +126,13 @@ const Bar = memo(function Bar({
     const color = interpolateColor(
       speakingMix.value,
       [0, 1],
-      [theme.color.primary, theme.color.live]
+      [theme.color.primary, theme.color.accent]
     );
 
     return {
       height,
       backgroundColor: color,
-      opacity: 0.35 + 0.65 * Math.min(1, amplitude * 2.2 + 0.25),
-      shadowOpacity: 0.35 * speakingMix.value + 0.15,
+      opacity: 0.3 + 0.6 * Math.min(1, amplitude * 2.2 + 0.25),
     };
   });
 
@@ -151,9 +151,6 @@ const styles = StyleSheet.create({
     width: BAR_WIDTH,
     borderRadius: BAR_WIDTH / 2,
     backgroundColor: theme.color.primary,
-    shadowColor: theme.color.primary,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 },
   },
 });
 

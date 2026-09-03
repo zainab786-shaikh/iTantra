@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# scratch / temp / large model files
+.scratch/
+.metro-log.txt
+asr_release_tmp.json
+tts_release_tmp.json

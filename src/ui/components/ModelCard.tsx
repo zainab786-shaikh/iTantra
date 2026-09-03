@@ -13,12 +13,12 @@ interface Props {
 }
 
 /**
- * Install state of the speech model, and the button that fetches it.
+ * Install state of offline speech recognition, and the button that fetches it.
  *
- * This is the most consequential control on the screen: until the model is
- * installed the app cannot transcribe at all, and shows an explicit placeholder
- * instead. The card is therefore blunt about which of those two worlds the user
- * is currently in.
+ * This is the most consequential control on the screen: until it's installed
+ * the app cannot transcribe at all. Deliberately free of model/backend names
+ * (`label` is available but not shown) — the user needs to know whether
+ * transcription works right now, not which decoder does it.
  */
 function ModelCardImpl({ status, label, sizeMb, onInstall }: Props) {
   const downloading = status.state === 'downloading';
@@ -42,28 +42,28 @@ function ModelCardImpl({ status, label, sizeMb, onInstall }: Props) {
         <View style={[styles.dot, { backgroundColor: tint }]} />
         <Text style={[styles.title, { color: tint }]}>
           {status.state === 'installed'
-            ? 'SPEECH MODEL READY'
+            ? 'READY TO TRANSCRIBE'
             : status.state === 'downloading'
-              ? `${status.phase === 'extracting' ? 'EXTRACTING' : 'DOWNLOADING'} ${status.percent}%`
+              ? `${status.phase === 'extracting' ? 'PREPARING' : 'DOWNLOADING'} ${status.percent}%`
               : status.state === 'unsupported'
-                ? 'SPEECH MODEL UNAVAILABLE'
+                ? 'TRANSCRIPTION UNAVAILABLE'
                 : status.state === 'error'
-                  ? 'MODEL ERROR'
-                  : 'NO SPEECH MODEL'}
+                  ? 'SETUP ERROR'
+                  : 'SETUP NEEDED'}
         </Text>
         {downloading && <ActivityIndicator size="small" color={tint} />}
       </View>
 
       <Text style={styles.body}>
         {status.state === 'installed'
-          ? `${label} is installed. Transcription runs fully offline on this device.`
+          ? 'Speech recognition runs fully offline on this device.'
           : status.state === 'downloading'
-            ? `Fetching ${label}. Keep the app open — this only happens once.`
+            ? 'Preparing offline speech recognition. Keep the app open — this only happens once.'
             : status.state === 'unsupported'
               ? status.reason
               : status.state === 'error'
                 ? status.message
-                : `${label} (~${sizeMb} MB) is not installed, so nothing can be transcribed yet. Downloading it needs internet once; after that the app works offline.`}
+                : `Offline speech recognition (~${sizeMb} MB) isn't set up yet, so nothing can be transcribed. This needs internet once; after that the app works offline.`}
       </Text>
 
       {downloading && (
@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
   wrap: {
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    backgroundColor: 'rgba(17, 22, 35, 0.6)',
+    backgroundColor: theme.color.surface,
     padding: 13,
     gap: 9,
   },
@@ -109,6 +109,8 @@ const styles = StyleSheet.create({
   fill: { height: 4, borderRadius: 2, backgroundColor: theme.color.primary },
   button: {
     marginTop: 2,
+    minHeight: theme.sizing.touchTarget,
+    justifyContent: 'center',
     paddingVertical: 10,
     borderRadius: theme.radius.md,
     borderWidth: 1,

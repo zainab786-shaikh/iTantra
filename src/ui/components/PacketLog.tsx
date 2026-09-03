@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown, LinearTransition } from 'react-native-reanimated';
 
 import { findLanguage } from '../../config/languages';
@@ -13,26 +13,36 @@ interface Props {
 }
 
 /**
- * Rolling feed of transmitted packets, newest first.
+ * Rolling feed of sent messages, newest first.
  *
- * Each row is the packet as it went on the wire — priority band, language,
- * decode latency, truncated UUID — because when something goes wrong in the
- * field the operator needs the identifier, not a prettified summary.
+ * Kept to what a user would actually want to review: what was said, in what
+ * language, at what priority, whether it went through, and when. Decode
+ * latency and the raw packet UUID are implementation detail and don't
+ * appear here.
  */
 function PacketLogImpl({ entries, onClear }: Props) {
   return (
     <View style={styles.wrap}>
       <View style={styles.headerRow}>
-        <Text style={styles.header}>TRANSMISSION LOG</Text>
-        <Text style={styles.count} onPress={onClear} suppressHighlighting>
-          {entries.length > 0 ? `${entries.length} · CLEAR` : 'EMPTY'}
-        </Text>
+        <Text style={styles.header}>SENT</Text>
+        {entries.length > 0 ? (
+          <Pressable
+            onPress={onClear}
+            hitSlop={16}
+            accessibilityRole="button"
+            accessibilityLabel="Clear sent messages"
+          >
+            <Text style={styles.count}>{entries.length} · CLEAR</Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.count}>EMPTY</Text>
+        )}
       </View>
 
       {entries.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyText}>
-            No packets yet — hold the mic to transmit.
+            No messages yet — hold the mic to transmit.
           </Text>
         </View>
       ) : (
@@ -67,11 +77,7 @@ function PacketLogImpl({ entries, onClear }: Props) {
                 >
                   {findLanguage(entry.packet.language).short}
                 </Text>
-                {entry.simulated && (
-                  <Text style={styles.simulated}>SIMULATED</Text>
-                )}
                 <View style={styles.spacer} />
-                <Text style={styles.latency}>{entry.latencyMs} ms</Text>
                 <Text
                   style={[
                     styles.delivery,
@@ -82,15 +88,14 @@ function PacketLogImpl({ entries, onClear }: Props) {
                     },
                   ]}
                 >
-                  {entry.delivered ? 'SENT' : 'FAIL'}
+                  {entry.delivered ? 'SENT' : 'FAILED'}
                 </Text>
               </View>
 
               <Text style={styles.text}>{entry.packet.text}</Text>
 
               <Text style={styles.id}>
-                {new Date(entry.packet.timestamp).toLocaleTimeString()} ·{' '}
-                {entry.packet.id.slice(0, 8)}
+                {new Date(entry.packet.timestamp).toLocaleTimeString()}
               </Text>
             </View>
           </Animated.View>
@@ -132,40 +137,21 @@ const styles = StyleSheet.create({
   emptyText: { color: theme.color.textFaint, fontSize: 12 },
   row: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(17, 22, 35, 0.72)',
+    backgroundColor: theme.color.surface,
     borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.color.hairline,
     overflow: 'hidden',
   },
   priorityBar: { width: 3 },
-  rowBody: { flex: 1, padding: 11, gap: 6 },
+  rowBody: { flex: 1, padding: 12, gap: 6 },
   rowMeta: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   priority: { fontSize: 9, fontWeight: '900', letterSpacing: 1 },
   lang: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
-  simulated: {
-    fontSize: 8,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    color: theme.color.warn,
-    borderWidth: 1,
-    borderColor: `${theme.color.warn}55`,
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-  },
   spacer: { flex: 1 },
-  latency: {
-    fontSize: 9,
-    color: theme.color.textFaint,
-    fontFamily: theme.font.mono,
-  },
   delivery: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
   text: { color: theme.color.text, fontSize: 14, lineHeight: 20 },
   id: {
-    fontSize: 9,
+    fontSize: 10,
     color: theme.color.textFaint,
-    fontFamily: theme.font.mono,
   },
 });
 

@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#05060B",
+    "backgroundColor": "#0A0A0A",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
@@ -19,9 +19,8 @@
       "minSdkVersion": 24,
       "targetSdkVersion": 34,
       "adaptiveIcon": {
-        "backgroundColor": "#05060B",
+        "backgroundColor": "#0A0A0A",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [

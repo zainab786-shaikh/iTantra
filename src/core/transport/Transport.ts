@@ -16,4 +16,11 @@ export interface Transport {
   isConnected(): boolean;
   /** Subscribe to link state changes. @returns an unsubscribe function. */
   onConnectionChange(listener: (connected: boolean) => void): () => void;
+  /**
+   * Subscribe to packets arriving from the far end. @returns an unsubscribe
+   * function. The real P2P transport (BLE/Nearby Connections) is a separate,
+   * later workstream — this seam exists now so the receiver pipeline has
+   * something concrete to consume in the meantime.
+   */
+  onPacketReceived(listener: (packet: iTantraPacket) => void): () => void;
 }

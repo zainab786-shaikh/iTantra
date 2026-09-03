@@ -1,5 +1,4 @@
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import React, { memo, useEffect } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
@@ -31,11 +30,12 @@ interface Props {
  *
  * Press-and-hold rather than tap-to-toggle: it matches radio muscle memory and
  * makes it impossible to leave the mic open by accident. Release finalizes the
- * utterance immediately instead of waiting out the VAD pause.
+ * utterance immediately.
  *
- * Two halo rings expand continuously while active; their scale is coupled to
- * the live level, so the control visibly reacts to the voice rather than just
- * animating on a timer.
+ * One ring pulses while active, coupled to the live level so it visibly
+ * reacts to the voice rather than just animating on a timer. Deliberately
+ * flat — a solid fill and a single restrained ring, no gradient core or
+ * multi-layer glow.
  */
 function PttButtonImpl({
   active,
@@ -76,36 +76,26 @@ function PttButtonImpl({
     ],
   }));
 
-  // Two rings offset by half a cycle so the pulse never fully disappears.
-  // Written out rather than generated in a loop: useAnimatedStyle is a hook and
-  // must be called unconditionally at the top level.
-  const haloA = useAnimatedStyle(() => {
+  // One ring, pulsing outward while active. Its scale tracks the live level
+  // so it visibly reacts to voice rather than animating on a fixed timer.
+  const halo = useAnimatedStyle(() => {
     const t = ring.value % 1;
     return {
-      opacity: (1 - t) * 0.5 * activeMix.value,
-      transform: [{ scale: 1 + t * (0.85 + smoothLevel.value * 0.35) }],
+      opacity: (1 - t) * 0.45 * activeMix.value,
+      transform: [{ scale: 1 + t * (0.7 + smoothLevel.value * 0.3) }],
     };
   });
 
-  const haloB = useAnimatedStyle(() => {
-    const t = (ring.value + 0.5) % 1;
-    return {
-      opacity: (1 - t) * 0.5 * activeMix.value,
-      transform: [{ scale: 1 + t * (0.85 + smoothLevel.value * 0.35) }],
-    };
-  });
-
-  const label = busy ? 'DECODING' : active ? 'RELEASE TO SEND' : 'HOLD TO TALK';
-  const tint = isSpeaking ? theme.color.live : theme.color.primary;
+  const label = busy ? 'PROCESSING' : active ? 'RELEASE TO SEND' : 'HOLD TO TALK';
+  // Green while holding/listening, yellow the moment speech is actually
+  // detected — the two design accents carry the two-stage meaning instead of
+  // a single color standing in for both.
+  const tint = isSpeaking ? theme.color.accent : theme.color.primary;
 
   return (
     <View style={styles.wrap}>
       <Animated.View
-        style={[styles.halo, { borderColor: tint }, haloA]}
-        pointerEvents="none"
-      />
-      <Animated.View
-        style={[styles.halo, { borderColor: tint }, haloB]}
+        style={[styles.halo, { borderColor: tint }, halo]}
         pointerEvents="none"
       />
 
@@ -129,21 +119,16 @@ function PttButtonImpl({
         accessibilityHint="Hold to capture speech, release to transcribe and send"
         accessibilityState={{ busy, selected: active }}
       >
-        <Animated.View style={[styles.core, core]}>
-          <LinearGradient
-            colors={
-              active
-                ? [tint, theme.color.primaryDim, '#0B1220']
-                : [theme.color.accent, '#4F46E5', '#131A2B']
-            }
-            start={{ x: 0.1, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
-            style={styles.gradient}
-          >
-            <View style={styles.inner}>
-              <MicGlyph color={active ? tint : theme.color.text} />
-            </View>
-          </LinearGradient>
+        <Animated.View
+          style={[
+            styles.core,
+            active
+              ? { backgroundColor: tint }
+              : { backgroundColor: theme.color.surfaceRaised, borderWidth: 1.5, borderColor: theme.color.primary },
+            core,
+          ]}
+        >
+          <MicGlyph color={active ? theme.color.void : theme.color.primary} />
         </Animated.View>
       </Pressable>
 
@@ -177,23 +162,13 @@ const styles = StyleSheet.create({
     width: SIZE,
     height: SIZE,
     borderRadius: SIZE / 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.55,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 14,
-  },
-  gradient: {
-    flex: 1,
-    borderRadius: SIZE / 2,
-    padding: 2,
-  },
-  inner: {
-    flex: 1,
-    borderRadius: SIZE / 2,
-    backgroundColor: 'rgba(5, 6, 11, 0.72)',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   glyph: { alignItems: 'center', justifyContent: 'center', height: 52 },
   capsule: { width: 17, height: 28, borderRadius: 9 },

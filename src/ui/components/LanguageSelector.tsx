@@ -19,10 +19,10 @@ interface Props {
 /**
  * Horizontal language rail.
  *
- * Each chip carries the language's own script, because an operator scanning for
- * "मराठी" should not have to read a romanized label first. The active chip
- * takes the language's accent colour, which is the same colour used for its
- * packets in the log, so the two views stay visually linked.
+ * Each chip carries the language's own script, because a user scanning for
+ * "मराठी" should not have to read a romanized label first. The selected chip
+ * uses Signal Yellow, the design system's one selection colour — not each
+ * language's own accent hue, which would turn the rail into a rainbow.
  */
 function LanguageSelectorImpl({ value, onChange, disabled }: Props) {
   return (
@@ -64,10 +64,10 @@ const Chip = memo(function Chip({ lang, selected, disabled, onPress }: ChipProps
   );
 
   const containerStyle = useAnimatedStyle(() => ({
-    borderColor: selected ? `${lang.accent}88` : theme.color.hairline,
+    borderColor: selected ? `${theme.color.accent}88` : theme.color.hairline,
     backgroundColor: selected
-      ? `${lang.accent}1F`
-      : 'rgba(22, 28, 44, 0.55)',
+      ? `${theme.color.accent}1F`
+      : theme.color.surface,
     transform: [{ scale: 0.97 + mix.value * 0.03 }],
     opacity: withTiming(disabled ? 0.45 : 1, { duration: 180 }),
   }));
@@ -78,18 +78,10 @@ const Chip = memo(function Chip({ lang, selected, disabled, onPress }: ChipProps
       disabled={disabled}
       accessibilityRole="radio"
       accessibilityState={{ selected, disabled }}
-      accessibilityLabel={`${lang.label} decoder`}
+      accessibilityLabel={`${lang.label}`}
     >
       <Animated.View style={[styles.chip, containerStyle]}>
-        <View
-          style={[
-            styles.chipDot,
-            {
-              backgroundColor: selected ? lang.accent : 'transparent',
-              borderColor: lang.accent,
-            },
-          ]}
-        />
+        {selected && <View style={styles.checkDot} />}
         <View>
           <Text
             style={[styles.chipNative, selected && { color: theme.color.text }]}
@@ -97,9 +89,9 @@ const Chip = memo(function Chip({ lang, selected, disabled, onPress }: ChipProps
             {lang.native}
           </Text>
           <Text
-            style={[styles.chipCode, selected && { color: lang.accent }]}
+            style={[styles.chipCode, selected && { color: theme.color.accentStrong }]}
           >
-            {lang.short} · {lang.code}
+            {lang.short}
           </Text>
         </View>
       </Animated.View>
@@ -132,11 +124,11 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     borderWidth: 1,
   },
-  chipDot: {
+  checkDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    borderWidth: 1.5,
+    backgroundColor: theme.color.accent,
   },
   chipNative: {
     color: theme.color.textMuted,

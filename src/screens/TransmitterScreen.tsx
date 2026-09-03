@@ -1,12 +1,11 @@
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { findLanguage } from '../config/languages';
-import { useTransmitterController } from '../hooks/useTransmitterController';
-import { AuroraBackground } from '../ui/components/AuroraBackground';
+import type { TransmitterController } from '../hooks/useTransmitterController';
 import { ConnectionBadge } from '../ui/components/ConnectionBadge';
 import { LanguageSelector } from '../ui/components/LanguageSelector';
 import { ModelCard } from '../ui/components/ModelCard';
@@ -24,31 +23,39 @@ import { STATUS_META, theme } from '../ui/theme';
  * middle (watched while talking), the PTT control under the thumb, and the log
  * below the fold (reviewed afterwards).
  */
-export function TransmitterScreen() {
-  const {
-    transcriptionState,
-    startPtt,
-    stopPtt,
-    isActive,
-    language,
-    setLanguage,
-    pauseMs,
-    setPauseMs,
-    log,
-    clearLog,
-    senderId,
-    connected,
-    level,
-    usingSyntheticAudio,
-    transport,
-    modelStatus,
-    installModel,
-    modelLabel,
-    modelSizeMb,
-  } = useTransmitterController();
+/**
+ * Takes the whole controller as a prop rather than calling
+ * useTransmitterController() itself. The controller must be owned by App —
+ * a component that stays mounted regardless of which screen is currently
+ * shown — because this screen unmounts when the operator switches to
+ * Receive, and an unmounted component's hook state (the transmission log,
+ * in particular) does not survive that.
+ */
+type Props = TransmitterController;
+
+export function TransmitterScreen({
+  transcriptionState,
+  startPtt,
+  stopPtt,
+  isActive,
+  language,
+  setLanguage,
+  pauseMs,
+  setPauseMs,
+  log,
+  clearLog,
+  senderId,
+  connected,
+  level,
+  usingSyntheticAudio,
+  transport,
+  modelStatus,
+  installModel,
+  modelLabel,
+  modelSizeMb,
+}: Props) {
 
   const status = STATUS_META[transcriptionState.status] ?? STATUS_META.IDLE!;
-  const activeLanguage = findLanguage(language);
   const busy = transcriptionState.status === 'TRANSCRIBING';
 
   const handlePressIn = useCallback(() => {
@@ -61,7 +68,6 @@ export function TransmitterScreen() {
 
   return (
     <View style={styles.root}>
-      <AuroraBackground />
       <StatusBar style="light" />
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -72,12 +78,15 @@ export function TransmitterScreen() {
           {/* ── Identity + link ─────────────────────────────────── */}
           <View style={styles.header}>
             <View style={styles.brandRow}>
-              <View style={styles.brandMark}>
-                <View style={styles.brandCore} />
-              </View>
+              <Image
+                source={require('../../assets/logo.png')}
+                style={styles.brandMark}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
               <View>
                 <Text style={styles.brand}>iTantra</Text>
-                <Text style={styles.brandSub}>TRANSMITTER · OFFLINE STT</Text>
+                <Text style={styles.brandSub}>TRANSMIT · OFFLINE</Text>
               </View>
             </View>
             <ConnectionBadge
@@ -87,14 +96,8 @@ export function TransmitterScreen() {
             />
           </View>
 
-          {/* Fixed three-up readout. Each cell clips rather than wraps, so the
-              row keeps its height no matter how long an identifier gets. */}
           <View style={styles.senderRow}>
-            <Field label="SENDER" value={senderId} />
-            <View style={styles.senderDivider} />
-            <Field label="PIPELINE" value="16k · MONO · PCM16" />
-            <View style={styles.senderDivider} />
-            <Field label="TRANSPORT" value={transport.name.replace(/^\w+:\/\//, '')} />
+            <Field label="DEVICE" value={senderId} />
           </View>
 
           {/* ── Live stage ──────────────────────────────────────── */}
@@ -127,14 +130,12 @@ export function TransmitterScreen() {
                   <Text style={styles.transcriptMeta}>
                     {findLanguage(transcriptionState.lastResult.language).label}
                     {' · '}
-                    {(transcriptionState.lastResult.durationMs / 1000).toFixed(1)}s audio
-                    {transcriptionState.lastResult.forced ? ' · manual flush' : ' · auto flush'}
+                    {(transcriptionState.lastResult.durationMs / 1000).toFixed(1)}s
                   </Text>
                 </>
               ) : (
                 <Text style={styles.placeholder}>
-                  Hold the mic. Speech is segmented on a{' '}
-                  {pauseMs} ms pause and decoded on-device.
+                  Hold the mic and speak. Pause briefly or release to send.
                 </Text>
               )}
             </View>
@@ -154,11 +155,10 @@ export function TransmitterScreen() {
 
           {usingSyntheticAudio && (
             <View style={styles.notice}>
-              <Text style={styles.noticeTitle}>SYNTHETIC AUDIO SOURCE</Text>
+              <Text style={styles.noticeTitle}>MICROPHONE UNAVAILABLE</Text>
               <Text style={styles.noticeText}>
-                No microphone stream on this platform, so the VAD and segmenter
-                are running on a generated speech-shaped signal. Build for
-                Android to capture real audio.
+                This platform has no microphone access. Build for Android to
+                transmit real speech.
               </Text>
             </View>
           )}
@@ -170,13 +170,7 @@ export function TransmitterScreen() {
             onInstall={() => void installModel()}
           />
 
-          <TelemetryStrip
-            latencyMs={transcriptionState.latencyMs}
-            utteranceMs={transcriptionState.utteranceMs}
-            engine={transcriptionState.engine}
-            pauseMs={pauseMs}
-            onPauseChange={setPauseMs}
-          />
+          <TelemetryStrip pauseMs={pauseMs} onPauseChange={setPauseMs} />
 
           <LanguageSelector
             value={language}
@@ -185,11 +179,6 @@ export function TransmitterScreen() {
           />
 
           <PacketLog entries={log} onClear={clearLog} />
-
-          <Text style={styles.footer}>
-            {activeLanguage.label} decoder · packets are UUID v4 tagged and
-            handed to the transport interface
-          </Text>
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -209,14 +198,16 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  // overflow hidden keeps the horizontal language rail and the aurora from
-  // making the whole console pan sideways.
+  // overflow hidden keeps the horizontal language rail from making the whole
+  // screen pan sideways.
   root: { flex: 1, backgroundColor: theme.color.void, overflow: 'hidden' },
   safe: { flex: 1 },
   scroll: {
-    paddingHorizontal: 18,
+    paddingHorizontal: theme.sizing.screenPadding,
     paddingTop: 8,
-    paddingBottom: 40,
+    // Extra clearance so the floating Transmit/Receive switcher (position:
+    // absolute in App.tsx) never overlaps the last card.
+    paddingBottom: 96,
     gap: 18,
   },
 
@@ -227,22 +218,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandMark: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: `${theme.color.primary}55`,
-    backgroundColor: `${theme.color.primary}14`,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brandCore: {
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: theme.color.primary,
-  },
+  brandMark: { width: 34, height: 34 },
   brand: {
     color: theme.color.text,
     fontSize: 19,
@@ -263,9 +239,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     paddingHorizontal: 12,
     borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.color.hairline,
-    backgroundColor: 'rgba(17, 22, 35, 0.5)',
+    backgroundColor: theme.color.surface,
   },
   // flex + minWidth 0 is what actually lets the child Text ellipsize instead of
   // forcing the row wider than the screen.
@@ -279,13 +253,6 @@ const styles = StyleSheet.create({
   senderId: {
     fontSize: 9.5,
     color: theme.color.textMuted,
-    fontFamily: theme.font.mono,
-  },
-  senderDivider: {
-    width: 1,
-    height: 20,
-    backgroundColor: theme.color.hairline,
-    marginHorizontal: 9,
   },
 
   stage: {
@@ -294,9 +261,7 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     paddingHorizontal: 16,
     borderRadius: theme.radius.xl,
-    borderWidth: 1,
-    borderColor: theme.color.hairline,
-    backgroundColor: 'rgba(10, 13, 22, 0.55)',
+    backgroundColor: theme.color.surface,
   },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
@@ -355,14 +320,5 @@ const styles = StyleSheet.create({
     color: theme.color.textMuted,
     fontSize: 11.5,
     lineHeight: 17,
-  },
-
-  footer: {
-    color: theme.color.textFaint,
-    fontSize: 10,
-    textAlign: 'center',
-    lineHeight: 15,
-    paddingHorizontal: 20,
-    paddingTop: 4,
   },
 });
