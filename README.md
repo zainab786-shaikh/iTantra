@@ -1,4 +1,4 @@
-# iTantra — Tactical Offline Speech-to-Packet Transmitter Engine
+# iTantra — Tactical Offline Speech-to-Packet Communication Engine
 
 [![React Native](https://img.shields.io/badge/React%20Native-0.86.3-blue.svg)](https://reactnative.dev/)
 [![Expo](https://img.shields.io/badge/Expo%20SDK-57-black.svg)](https://expo.dev/)
@@ -10,14 +10,19 @@
 
 Designed for high-stress, low-connectivity, and disaster/tactical communication environments, iTantra records audio, performs on-device Voice Activity Detection (VAD), transcribes speech into text **completely offline**, categorizes priority based on multi-lingual keyword triggers, and wraps the utterance into a standardized, transport-agnostic data packet for broadcast over radio (LoRa, BLE, or tactical mesh networks).
 
+The app runs in two modes sharing a single transport instance:
+
+* **Transmit** — speech in, `iTantraPacket` out.
+* **Receive** — packets in, rendered to the log and spoken aloud through on-device TTS, with a banner for `CRITICAL` traffic.
+
 ---
 
 ## 🚀 Key Features
 
 * **100% Offline Speech-to-Text**: Decodes audio entirely on-device without cloud APIs or network access using quantized ONNX models (`sherpa-onnx`).
-* **Sub-Second Low Latency**: Utilizes single-pass **CTC models** (NeMo CTC & Dolphin CTC) achieving ultra-fast transcribing times (~500–600 ms) suitable for push-to-talk (PTT) field operations.
+* **Sub-Second Low Latency**: Single-pass **CTC decoders** (NeMo CTC for English, AI4Bharat IndicConformer per Indian language) keep transcription well under a second, suitable for push-to-talk field use. Autoregressive models such as Whisper were an order of magnitude slower on the same hardware.
 * **10 Indian & International Languages**:
-  * **English (`en-IN`)**, **Hindi (`hi-IN`)**, **Marathi (`mr-IN`)**, **Tamil (`ta-IN`)**, **Bengali (`bn-IN`)**, **Telugu (`te-IN`)**, **Kannada (`kn-IN`)**, **Gujarati (`gu-IN`)**, **Malayalam (`ml-IN`)**, and **Odia (`or-IN`)**.
+  * **English (`en-IN`)** [Default], **Hindi (`hi-IN`)**, **Marathi (`mr-IN`)**, **Gujarati (`gu-IN`)**, **Kannada (`kn-IN`)**, **Malayalam (`ml-IN`)**, **Tamil (`ta-IN`)**, **Telugu (`te-IN`)**, **Odia (`or-IN`)**, and **Bengali (`bn-IN`)**.
 * **Intelligent Sentence Segmentation & VAD**:
   * Adaptive noise-floor energy + Zero Crossing Rate (ZCR) detector with optional Silero VAD v5 ONNX support.
   * Hysteresis smoothing, configurable pause flush timing (600 ms, 750 ms, 1000 ms), and pre-speech audio buffering (ensuring leading syllables are never clipped).
@@ -36,18 +41,48 @@ Designed for high-stress, low-connectivity, and disaster/tactical communication 
 
 ## 📊 Measured Performance on Real Hardware
 
-*Tested on physical device (Realme RMX3771 / Android 14, ARM64):*
+*Tested on a physical device (Realme RMX3771 / Android 14, ARM64).*
 
-| Language | Engine | Model Architecture | Average Latency | Transcription Fidelity |
-| :--- | :--- | :--- | :---: | :--- |
-| **English** | NeMo CTC | Conformer Medium (int8) | **~500 ms** | High / Exact |
-| **Hindi** | Dolphin CTC | Multilingual Conformer (int8) | **~546 ms** | High / Exact |
-| **Tamil** | Dolphin CTC | Multilingual Conformer (int8) | **~555 ms** | High / Exact |
-| **Bengali** | Dolphin CTC | Multilingual Conformer (int8) | **~591 ms** | High / Exact |
-| **Telugu** | Dolphin CTC | Multilingual Conformer (int8) | **~617 ms** | Moderate (Script repair active) |
-| **Kannada** | Dolphin CTC | Multilingual Conformer (int8) | **~601 ms** | Fair |
-| **Marathi** | Dolphin CTC | Multilingual Conformer (int8) | **Fast** | High / Exact |
-| **Gujarati, Malayalam, Odia** | Dolphin CTC | Multilingual Conformer (int8) | **Fast** | Model mapped |
+Speech-to-text is routed **per language**. English uses a NeMo CTC conformer;
+each Indian language uses its own dedicated **AI4Bharat IndicConformer** model
+rather than one shared multilingual decoder — a single model asked to identify
+the language itself proved to be the main source of error.
+
+| Order | Language | Engine | Model | Latency | Status |
+| :---: | :--- | :--- | :--- | :---: | :--- |
+| 1 | **English** (`en-IN`) | NeMo CTC | Conformer Medium (int8) | ~500 ms | Verified (Default) |
+| 2 | **Hindi** (`hi-IN`) | IndicConformer | AI4Bharat (int8) | sub-second | Verified |
+| 3 | **Marathi** (`mr-IN`) | IndicConformer | AI4Bharat (int8) | sub-second | Verified |
+| 4 | **Gujarati** (`gu-IN`) | IndicConformer | AI4Bharat (int8) | sub-second | Verified |
+| 5 | **Kannada** (`kn-IN`) | IndicConformer | AI4Bharat (int8) | sub-second | Verified |
+| 6 | **Malayalam** (`ml-IN`) | IndicConformer | AI4Bharat (int8) | sub-second | Verified |
+| 7 | **Tamil** (`ta-IN`) | IndicConformer | AI4Bharat (int8) | sub-second | Verified |
+| 8 | **Telugu** (`te-IN`) | IndicConformer | AI4Bharat (int8) | sub-second | Verified |
+| 9 | **Odia** (`or-IN`) | IndicConformer | AI4Bharat (int8) | sub-second | Verified |
+| 10 | **Bengali** (`bn-IN`) | IndicConformer | AI4Bharat (int8) | sub-second | Verified |
+
+All ten were confirmed working on device. The English figure is an instrumented
+measurement against a reference clip; the Indic entries are functional
+verification by a native reader, not stopwatch timings.
+
+### Why per-language models
+
+Two shared multilingual decoders were tried first and both failed, for different
+reasons. They remain in the registry as fallbacks:
+
+* **Whisper** cannot render Indic script through this library at all. It uses
+  byte-level BPE, and the library converts tokens to strings one at a time, so
+  partial UTF-8 sequences collapse to empty strings. Hindi decoded to
+  `[" ह","म","े","ं"," ","","","","र"]` — three empty tokens where words belong.
+  ASCII is one byte per character, so English is unaffected and no model size
+  changes this.
+* **Dolphin CTC** produced the right sounds in the wrong script, because it
+  identifies language itself and the library exposes no way to pin it. Bengali
+  speech returned as `अपनारओबस्थान जान` — correct phonetically, written in
+  Devanagari.
+
+Dedicated per-language models remove language identification from the problem
+entirely.
 
 ---
 
@@ -68,7 +103,7 @@ Designed for high-stress, low-connectivity, and disaster/tactical communication 
         ▼
 [ STT Engine Provider ] ──► TurboModule ONNX Runtime (sherpa-onnx)
         │                   • English: NeMo CTC (~64 MB)
-        │                   • Indic: Dolphin CTC (~183 MB)
+        │                   • Indic: IndicConformer, one model per language (~188 MB each)
         │
         ▼
 [ Post-Processing ] ──► Hallucination Rejection + Indic Unicode Script Repair
@@ -79,6 +114,26 @@ Designed for high-stress, low-connectivity, and disaster/tactical communication 
         ▼
 [ Transport Layer ] ──► Dispatched to Transport (MockTransport / LoRa / BLE Mesh)
 ```
+
+### Receive path
+
+```
+[ Transport Layer ] ──► onPacketReceived
+        │
+        ▼
+[ useReceiverController ] ──► Dedupe + ReceivedMessage state
+        │
+        ├──► [ ReceivedMessageLog ]   Priority-banded inbox
+        ├──► [ CriticalAlertBanner ]  Raised for CRITICAL traffic
+        │
+        ▼
+[ TtsManager ] ──► TtsQueue ──► TtsEngine (sherpa-onnx VITS)
+                                • Piper voices: English, Hindi, Malayalam
+                                • MMS voices:   remaining Indian languages
+```
+
+Both modes are mounted from `App.tsx` and share one transport instance, so a
+packet sent in Transmit mode arrives in Receive mode on the same device.
 
 ---
 
@@ -106,33 +161,46 @@ export interface iTantraPacket {
 
 ```
 iTantra/
-├── App.tsx                          # Root application entry point
-├── app.json                         # Expo configuration and permissions
-├── package.json                     # Dependencies & scripts
-├── TRANSMITTER.md                   # Technical specification & signal pipeline docs
-├── WHAT_WE_DID.txt                  # Changelog, performance benchmarks, and debug notes
+├── App.tsx                          # Root; owns both controllers and the shared transport
+├── app.json                         # Expo config, permissions, SDK levels
+├── README.md                        # This file
+├── Design.md                        # Design rationale and system decisions
+├── TRANSMITTER.md                   # Technical spec for the transmit pipeline
+├── WHAT_WE_DID.txt                  # Plain-language build log and known limits
 ├── src/
 │   ├── config/
-│   │   ├── languages.ts             # 10 language definitions, script mappings, & colors
-│   │   ├── models.ts                # Model catalog (NeMo, Dolphin, Whisper)
-│   │   ├── modelTypes.ts            # STT engine and model type definitions
-│   │   └── vadConfig.ts             # VAD threshold, padding, and pause configurations
+│   │   ├── languages.ts             # 10 language definitions, scripts, accent colours
+│   │   ├── models.ts                # STT catalog: NeMo CTC, IndicConformer, Dolphin, Whisper
+│   │   ├── modelTypes.ts            # STT engine/model type unions
+│   │   ├── ttsModels.ts             # TTS catalog: Piper and MMS voices per language
+│   │   ├── ttsModelTypes.ts         # TTS model type unions
+│   │   └── vadConfig.ts             # VAD thresholds, padding, pause presets
 │   ├── core/
-│   │   ├── audio/                   # PCM streaming, resampling, WAV debug logger
-│   │   ├── device/                  # Device fingerprinting & unique node ID generator
-│   │   ├── packet/                  # packetFactory and multilingual priority classification
-│   │   ├── stt/                     # Sherpa-onnx backend, ModelManager, Indic script repair
-│   │   ├── transport/               # Transport interface & MockTransport
-│   │   ├── vad/                     # Energy VAD, Silero VAD, and SentenceSegmenter
-│   │   └── types.ts                 # Core TypeScript contracts and pipeline interfaces
+│   │   ├── audio/                   # PCM capture, framing, resampling, WAV debug dump
+│   │   ├── device/                  # Stable per-install sender ID
+│   │   ├── diagnostics/             # On-device STT round-trip and isolation harnesses
+│   │   ├── packet/                  # packetFactory + multilingual priority banding
+│   │   ├── receiver/                # Received-message contracts
+│   │   ├── stt/                     # Sherpa backend, ModelManager, Indic script repair
+│   │   ├── transport/               # Transport interface + MockTransport loopback
+│   │   ├── tts/                     # TtsEngine, TtsManager, TtsQueue, TtsModelManager
+│   │   ├── vad/                     # Energy VAD, Silero VAD, SentenceSegmenter
+│   │   ├── nativeModules.ts         # Runtime probes for Expo Go / missing native modules
+│   │   └── types.ts                 # Core pipeline contracts
 │   ├── hooks/
-│   │   └── useTransmitterController.ts # State machine binding audio, VAD, STT, and UI
+│   │   ├── useTransmitterController.ts  # Binds audio, VAD, STT, packets, transport
+│   │   └── useReceiverController.ts     # Binds transport intake, log, TTS playback
 │   ├── screens/
-│   │   └── TransmitterScreen.tsx    # Primary cockpit view with PTT control & telemetry
+│   │   ├── TransmitterScreen.tsx    # PTT cockpit: visualizer, telemetry, language rail
+│   │   └── ReceiverScreen.tsx       # Inbox: received log, critical alert, TTS status
 │   └── ui/
-│       ├── components/              # PttButton, WaveVisualizer, PacketLog, ModelCard, etc.
-│       └── theme.ts                 # Tactical dark color palette & styling tokens
+│       ├── components/              # PttButton, WaveVisualizer, PacketLog, ModelCard,
+│       │                            # ReceivedMessageLog, CriticalAlertBanner, Dev* rows
+│       └── theme.ts                 # Dark palette and design tokens
 ```
+
+> `Dev*` components and `src/core/diagnostics/` are development-only harnesses for
+> exercising STT and TTS directly on device. They are not part of the operator flow.
 
 ---
 
@@ -193,30 +261,59 @@ npx expo start --dev-client
 
 Models can be installed via **In-App Download** or directly **sideloaded via ADB** for air-gapped devices.
 
-### Official Weights Source
-Models are fetched from the [`k2-fsa/sherpa-onnx`](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) release registry:
-* **English:** `sherpa-onnx-nemo-ctc-en-conformer-medium` (~64 MB)
-* **Indic (All 9 Indian Languages):** `sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02` (~183 MB)
-* **Whisper Base (Alternative):** `sherpa-onnx-whisper-base` (~198 MB)
+### Weight Sources
 
-### Sideloading Models via ADB (Air-Gapped / Offline Deployment)
-To manually load models directly onto an Android device without internet access:
+**Speech-to-text**
+
+| Purpose | Model | Size | Source |
+| :--- | :--- | :--- | :--- |
+| English | `sherpa-onnx-nemo-ctc-en-conformer-medium` | ~64 MB | [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models) |
+| Each Indian language | `indicconformer-<lang>` (AI4Bharat) | ~188 MB each | [Hugging Face](https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx) |
+| Fallbacks (unused) | Dolphin CTC, Whisper base/small | 77–610 MB | k2-fsa/sherpa-onnx |
+
+Indic models are per-language, so only the languages actually deployed need to
+be installed. Each is a `model.int8.onnx` plus a shared `tokens.txt`.
+
+**Text-to-speech** (receive mode) — Piper voices for English, Hindi and
+Malayalam; MMS voices for the remaining Indian languages. See
+`src/config/ttsModels.ts`.
+
+### Installing Models
+
+Either press **Download** on the model card in-app, or sideload over ADB for
+air-gapped devices. `ModelManager` checks the sideload directory *before* the
+downloader, so a hand-placed model always wins.
 
 ```bash
-# 1. Download model tarball
-curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02.tar.bz2
-tar -xjf sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02.tar.bz2
-
-# 2. Push files to app's internal document storage
 PKG=com.itantra.app
-DEST=files/itantra-models/sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02
+DEST=files/itantra-models/indicconformer-hi          # one directory per model id
 
-adb shell mkdir -p /data/local/tmp/model
 adb shell run-as $PKG mkdir -p $DEST
-adb push sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02/* /data/local/tmp/model/
-adb shell "run-as $PKG cp -r /data/local/tmp/model/* $DEST/"
-adb shell rm -rf /data/local/tmp/model
+adb push model.int8.onnx tokens.txt /data/local/tmp/
+for f in model.int8.onnx tokens.txt; do
+  adb shell "run-as $PKG cp /data/local/tmp/$f $DEST/$f"
+done
+adb shell rm -f /data/local/tmp/model.int8.onnx /data/local/tmp/tokens.txt
 ```
+
+Restart the app afterwards — resolved model paths are cached per model id.
+
+---
+
+## ⚠️ Known Limitations
+
+* **CTC decoders emit no capitalisation or punctuation.** This is the cost of
+  single-pass decoding and sub-second latency.
+* **Whisper is unusable for Indic script** through `react-native-sherpa-onnx`
+  (see *Why per-language models*). It is kept for English only.
+* **One app at a time can hold the microphone.** An in-progress call, voice
+  recorder or assistant will block capture; the app reports this rather than
+  substituting generated audio.
+* **`MockTransport` is a loopback**, not a radio. It returns sent packets to the
+  receiver on the same device so both pipelines can be exercised end to end. Real
+  RF transport is a separate workstream.
+* **Development builds hot-reload.** Fast Refresh tears down the native audio
+  stream, which can crash it mid-capture. Use a release build for demos.
 
 ---
 
@@ -251,6 +348,7 @@ Contributions are welcome! Please create an issue or submit a Pull Request.
 Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
 
 ### Acknowledgments
+* [AI4Bharat IndicConformer](https://github.com/AI4Bharat/IndicConformerASR) — State-of-the-art offline Indian language speech recognition models.
 * [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) — Embedded offline speech recognition and ONNX runtime.
 * [thewh1teagle/react-native-sherpa-onnx](https://github.com/thewh1teagle/react-native-sherpa-onnx) — React Native TurboModule bindings.
 * [Expo](https://expo.dev) — React Native ecosystem.

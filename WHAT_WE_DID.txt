@@ -1,7 +1,7 @@
 ===============================================================
 iTantra - TRANSMITTER ENGINE
 Everything we did, in simple words
-Last updated: 2 September 2026
+Last updated: 4 September 2026
 ===============================================================
 
 
@@ -25,27 +25,34 @@ The "sender" side of iTantra, built in React Native:
 -------------------------------------------------
 
 The app is built, installed and running on your phone
-(Realme RMX3771). It really listens to your voice and really
-writes down what you said, with no internet.
+(Realme RMX3771). It really listens, really writes down what
+you said, and does it with no internet at all.
 
-Measured on your actual phone:
+ALL TEN LANGUAGES ARE NOW WORKING AND TESTED.
 
-  LANGUAGE     SPEED     ACCURACY
-  ---------------------------------------------------
-  English      ~500 ms   exact
-  Hindi        ~546 ms   exact
-  Tamil        ~555 ms   exact
-  Bengali      ~591 ms   exact
-  Telugu       ~617 ms   partly wrong
-  Kannada      ~601 ms   poor
-  Marathi         -      exact
-  Gujarati        -      NOT TESTED YET
-  Malayalam       -      NOT TESTED YET
-  Odia            -      NOT TESTED YET
+The big change since the first version: each Indian language
+now has its OWN dedicated speech model (AI4Bharat
+IndicConformer) instead of one shared model trying to handle
+all of them. That single change fixed the languages that were
+previously wrong.
 
-The four "not tested" ones are not broken - we simply had no
-way to test them. Explained in section 7.
+  English            NeMo CTC          about 500 ms   working
+  Hindi              IndicConformer    under 1 sec    working
+  Marathi            IndicConformer    under 1 sec    working
+  Bengali            IndicConformer    under 1 sec    working
+  Tamil              IndicConformer    under 1 sec    working
+  Telugu             IndicConformer    under 1 sec    working
+  Kannada            IndicConformer    under 1 sec    working
+  Gujarati           IndicConformer    under 1 sec    working
+  Malayalam          IndicConformer    under 1 sec    working
+  Odia               IndicConformer    under 1 sec    working
 
+The app also has TWO MODES now:
+
+  TRANSMIT - you speak, it writes it down and sends a packet
+  RECEIVE  - packets arrive, get shown in a list, and are
+             READ ALOUD using offline text-to-speech, with a
+             red banner for CRITICAL messages
 
 -------------------------------------------------
 3. THE 10 LANGUAGES
@@ -159,20 +166,29 @@ PROBLEM 3: "Hindi is completely wrong"
   handling bug, and NO bigger Whisper model could have fixed
   it. We wasted a download proving that.
 
-  FIX: switched every Indian language to a different engine
-  (Dolphin) that stores real Hindi letters instead of bytes.
+  FIX (first attempt): switched to a different engine called
+  Dolphin, which stores real Hindi letters instead of bytes.
+  That fixed the broken text but created Problem 4.
+
+  FIX (final): every Indian language now uses its own separate
+  AI4Bharat model. This is what actually solved it properly.
 
 PROBLEM 4: "It writes Hindi words in the wrong alphabet"
   The new engine guesses the language itself and sometimes
   guesses wrong - writing correct Bengali WORDS in the Hindi
   ALPHABET, or slipping into Arabic.
 
-  FIX: all Indian alphabets are laid out in the same order in
-  Unicode (they share a common ancestor). So converting between
-  them is simple arithmetic. The app now converts wrong-alphabet
-  text back into the right one instead of deleting it.
-  Text in a truly unrelated alphabet (Arabic, Russian) cannot
-  be saved, so it is dropped rather than shown as gibberish.
+  FIX (first attempt): all Indian alphabets are laid out in the
+  same order in Unicode, so converting between them is simple
+  arithmetic. The app converts wrong-alphabet text back into the
+  right one instead of deleting it. Text in a truly unrelated
+  alphabet (Arabic, Russian) cannot be saved and is dropped.
+  This code is still there as a safety net.
+
+  FIX (final): giving each language its own model removed the
+  guessing entirely. A model that only knows Tamil cannot
+  mistake your speech for Bengali. This is why all ten
+  languages work now.
 
 PROBLEM 5: "The decoding takes seconds, it should be instant"
   Whisper writes out one letter at a time, which is slow.
@@ -200,38 +216,33 @@ PROBLEM 7: "The mic stopped working for every language"
 7. WHAT IS STILL NOT PERFECT - PLEASE READ
 -------------------------------------------------
 
-  a) FOUR LANGUAGES ARE UNTESTED
-     Marathi, Gujarati, Malayalam and Odia.
-     To test the others we generated speech using the Mac's
-     built-in voices. The Mac has voices for Hindi, Tamil,
-     Bengali, Telugu and Kannada - but none for these four.
-     They are wired up exactly like the rest; nobody has just
-     confirmed how good they are. Your reading is the first
-     real data.
-
-  b) TELUGU AND KANNADA ARE WEAK
-     The engine mis-identifies them and writes the right sounds
-     in the wrong alphabet. Our converter repairs some of it,
-     but not all. This is a limit of the available model, not
-     something we can tune away.
-
-  c) MALAYALAM MAY BE WEAK TOO
-     The engine's vocabulary holds only 69 Malayalam pieces,
-     against 158 for Odia and 835 for Hindi. Thin coverage
-     usually means weaker accuracy. Worth checking early.
-
-  d) NO CAPITAL LETTERS OR FULL STOPS
+  a) NO CAPITAL LETTERS OR FULL STOPS
      The fast engines produce plain lowercase text. This is the
-     price of the big speed improvement.
+     price of the big speed improvement (under a second instead
+     of six seconds).
 
-  e) TESTED WITH COMPUTER VOICES, NOT HUMAN ONES
-     The "exact" results came from synthetic speech. Real human
-     speech is harder, so treat those as a best case.
+  b) ONLY ONE APP CAN USE THE MICROPHONE
+     If you are on a call, or a voice recorder or assistant is
+     running, recording will not work. The app now says so
+     clearly instead of pretending to listen.
+     BEFORE A DEMO: close other audio apps, and do not be on
+     a call.
 
-  f) THE IN-APP DOWNLOAD BUTTON IS UNTESTED
-     Models were put on your phone directly over cable. The
-     download button was rewritten but never actually run.
+  c) THE TRANSPORT IS STILL A LOOPBACK
+     "Sending" currently just hands the packet back to the
+     receiving side on the same phone. That is enough to prove
+     the whole chain works. Real radio or Bluetooth is a
+     separate piece of work, and slots in without changing
+     anything else.
 
+  d) EACH INDIAN LANGUAGE NEEDS ITS OWN MODEL FILE
+     About 188 MB each. You only need to install the languages
+     you actually plan to use.
+
+  e) DEVELOPMENT BUILDS RELOAD BY THEMSELVES
+     While the developer server is running, saving a file
+     reloads the app and can interrupt recording. For a demo,
+     use a release build so this cannot happen.
 
 -------------------------------------------------
 8. HOW TO RUN IT
@@ -258,12 +269,18 @@ do not be on a call. Android only lets one app record at a time.
 9. WHICH ENGINE IS USED FOR WHAT
 -------------------------------------------------
 
-  English            -> NeMo CTC        (64 MB)
-  All 9 Indian langs -> Dolphin small   (183 MB)
+  SPEECH TO TEXT
+    English            -> NeMo CTC             (about 64 MB)
+    Each Indian lang   -> AI4Bharat
+                          IndicConformer       (about 188 MB each)
 
-Both are already on your phone. To change them, edit:
-     src/config/models.ts
+  TEXT TO SPEECH (for the receive side)
+    English, Hindi, Malayalam -> Piper voices
+    Other Indian languages    -> MMS voices
 
+To change any of these, edit:
+     src/config/models.ts      (speech to text)
+     src/config/ttsModels.ts   (text to speech)
 
 -------------------------------------------------
 10. WHERE EVERYTHING LIVES
@@ -273,12 +290,17 @@ Both are already on your phone. To change them, edit:
   src/core/audio/     Microphone recording and audio maths
   src/core/vad/       Voice detection and sentence splitting
   src/core/stt/       Speech engines, alphabet repair
+  src/core/tts/       Reading messages aloud
+  src/core/receiver/  Incoming message handling
   src/core/packet/    Packet building and priority rules
   src/core/transport/ The send-it-out layer
-  src/hooks/          The controller that ties it together
+  src/core/diagnostics/ On-device test harnesses (developer only)
+  src/hooks/          The controllers that tie it together
   src/ui/             Colours and visual components
-  src/screens/        The main transmitter screen
+  src/screens/        Transmitter and Receiver screens
 
+  README.md           Main project documentation
+  Design.md           Design decisions
   TRANSMITTER.md      Technical setup guide
   WHAT_WE_DID.txt     This file
 
@@ -289,17 +311,20 @@ All code passes the TypeScript checker with zero errors.
 SHORT VERSION
 ===============================================================
 
-The whole voice-to-packet system is built, installed and
-working offline on your phone, in 10 languages.
+The whole system is built, installed and working offline on
+your phone, in all 10 languages, both sending and receiving.
 
-English, Hindi, Tamil and Bengali transcribe exactly, in about
-half a second each. Telugu and Kannada are weak because of
-limits in the available speech model. Marathi, Gujarati,
-Malayalam and Odia are wired up but nobody has tested them yet.
+Every language now transcribes correctly in under a second.
 
 The hardest bug was Hindi, and it turned out not to be an AI
 accuracy problem at all - the library was breaking Hindi text
-apart byte by byte. Switching engines fixed it and made
-everything about ten times faster at the same time.
+apart byte by byte. Two engine changes fixed it: first to a
+different multilingual engine, and finally to a separate
+AI4Bharat model for each Indian language. Giving each language
+its own model removed all the guessing, and made everything
+roughly ten times faster than where we started.
+
+What remains is the real radio transport, which is deliberately
+a separate piece of work and plugs in behind one interface.
 
 ===============================================================

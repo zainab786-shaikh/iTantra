@@ -17,8 +17,9 @@ mic ──► AudioCaptureService ──► VadBackend ──► SentenceSegment
 | VAD | `src/core/vad/EnergyVad.ts` | adaptive noise-floor energy + ZCR detector (default) |
 | VAD (opt) | `src/core/vad/SileroVad.ts` | Silero v5 via `onnxruntime-react-native` |
 | Segmentation | `src/core/vad/SentenceSegmenter.ts` | hysteresis + pre-speech padding + pause flush |
-| STT | `src/core/stt/SherpaSttBackend.ts` | `react-native-sherpa-onnx` → `transcribeSamples()`, Whisper base multilingual |
-| Model install | `src/core/stt/ModelManager.ts` | in-app download from the `asr-models` release |
+| STT | `src/core/stt/SherpaSttBackend.ts` | `react-native-sherpa-onnx` → `transcribeSamples()`, routed per language |
+| Script repair | `src/core/stt/indicScript.ts` | transliterates cross-script output, rejects unrecoverable |
+| Model install | `src/core/stt/ModelManager.ts` | in-app download, or side-load dir checked first |
 | Packet | `src/core/packet/packetFactory.ts` | UUID v4 via `expo-crypto`, keyword priority banding |
 | Transport | `src/core/transport/MockTransport.ts` | logging stand-in behind the `Transport` interface |
 
@@ -43,66 +44,73 @@ installed. It deliberately does not emit realistic sentences, because output
 that looks like a bad transcription is worse than output that is obviously
 absent.
 
-## Installing the speech model
+## Decoder routing
 
-The decoder is **Whisper base, multilingual** (`sherpa-onnx-whisper-base`,
-~198 MB download, ~154 MB installed as int8). There are two ways to install it.
+There is no single model that serves both English and Indic well, so
+`resolveModelForLanguage()` routes by language:
 
-### 1. In-app download
+| Language | Model | Source |
+|---|---|---|
+| English | `sherpa-onnx-nemo-ctc-en-conformer-medium` (~64 MB) | k2-fsa release |
+| 9 Indian languages | `indicconformer-<lang>` (AI4Bharat, ~188 MB each) | Hugging Face |
 
-Press **DOWNLOAD** on the model card. Needs internet once; offline thereafter.
+Dolphin and Whisper remain in `STT_MODELS` below these, as fallbacks. Neither is
+used, and both are there for a reason worth keeping on record:
 
-The download deliberately bypasses `react-native-sherpa-onnx`'s model registry
-and fetches the release archive directly. The registry resolves ids by listing a
-GitHub release's assets and returned `Unknown model id: sherpa-onnx-whisper-base`
-for an asset that demonstrably exists — that release carries 498 assets and this
-one sits at index 100, right on a pagination boundary.
+**Whisper cannot produce Indic script through this library.** It uses byte-level
+BPE, and the library converts tokens to strings individually, so partial UTF-8
+sequences collapse to empty strings. Verified on device — Hindi decoded to:
 
-### 2. Side-load over adb (no internet on the phone)
-
-`ModelManager` checks `<documents>/itantra-models/<model-id>` *before* the
-downloader, so a model can be installed by hand. This is the path used for demos
-where the phone has no connectivity:
-
-```bash
-curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2
-tar -xjf sherpa-onnx-whisper-base.tar.bz2
-PKG=com.itantra.app
-DEST=files/itantra-models/sherpa-onnx-whisper-base
-adb shell mkdir -p /data/local/tmp/wb
-adb shell run-as $PKG mkdir -p $DEST
-for f in base-encoder.int8.onnx base-decoder.int8.onnx base-tokens.txt; do
-  adb push sherpa-onnx-whisper-base/$f /data/local/tmp/wb/$f
-  adb shell "run-as $PKG cp /data/local/tmp/wb/$f $DEST/$f"
-done
-adb shell rm -rf /data/local/tmp/wb
+```
+tokens: [" ह","म","े","ं"," ","","","","र"]
+                          ^^  ^^  ^^  empty
 ```
 
-Only the int8 weights and the tokens file are needed; the full-precision `.onnx`
-files in the archive can be skipped. Restart the app afterwards — the resolved
-path is cached.
+ASCII is one byte per character, so English is unaffected. No Whisper model size
+changes this, and `0.4.3` is the latest published version of the library.
 
-> **Note.** There is no dedicated Hindi or IndicConformer model in the
-> sherpa-onnx release. An earlier version of `src/config/models.ts` named one; it
-> did not exist. Hindi and the other Indian languages are served by multilingual
-> Whisper, whose target language is set from the language selector.
+**Dolphin CTC writes the right sounds in the wrong script.** It identifies
+language itself with no way to pin it; Bengali speech returned as
+`अपनारओबस्थान जान` — phonetically correct, in Devanagari. `indicScript.ts` was
+written to repair exactly this, and still runs as a safety net: the Indic Unicode
+blocks are ISCII-aligned, so cross-script conversion is a code-point shift.
+Output in an unrelated script (Arabic, Cyrillic) has no such correspondence and
+is rejected rather than emitted as a fragment.
 
-Whisper takes its language at construction time, so switching languages rebuilds
-the recogniser — that is why `setLanguage` warms the decoder immediately rather
-than waiting for the next utterance.
+Per-language models remove language identification from the problem entirely,
+which is why all ten languages now work.
 
-To use a different model, change `PRIMARY_MODEL` in `src/config/models.ts`. The
-`id` must match the release asset name with `.tar.bz2` stripped.
+## Installing models
+
+Press **Download** on the model card, or side-load over ADB. `ModelManager`
+checks `<documents>/itantra-models/<model-id>` *before* the downloader, so a
+hand-placed model always wins — this is the path used for air-gapped demos.
+
+```bash
+PKG=com.itantra.app
+DEST=files/itantra-models/indicconformer-hi
+
+adb shell run-as $PKG mkdir -p $DEST
+adb push model.int8.onnx tokens.txt /data/local/tmp/
+for f in model.int8.onnx tokens.txt; do
+  adb shell "run-as $PKG cp /data/local/tmp/$f $DEST/$f"
+done
+```
+
+Restart the app afterwards; resolved paths are cached per model id.
 
 ## Measured on device
 
-Realme RMX3771, Whisper base int8, English:
+Realme RMX3771, Android 14, ARM64:
 
 | | |
 |---|---|
 | Capture | 16 kHz mono PCM-16 (confirmed by Android's audio subsystem) |
-| Decode | ~1450 ms for 2.8 s of speech |
-| Engine | `SHERPA-ONNX` |
+| English decode | ~500 ms, exact on the reference clip |
+| Indic decode | sub-second, all nine verified working |
+
+CTC decoders emit no capitalisation or punctuation — the cost of single-pass
+decoding.
 
 ## Swapping the transport
 
