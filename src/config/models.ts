@@ -7,8 +7,13 @@ import type { STTModelType } from './modelTypes';
  * stripped — that is the identifier the library's download manager uses to look
  * a model up in the `asr-models` release of k2-fsa/sherpa-onnx.
  */
+export interface SttModelFile {
+  filename: string;
+  url: string;
+}
+
 export interface SttModelDescriptor {
-  /** Release asset name minus ".tar.bz2". Also the on-disk directory name. */
+  /** Release asset name minus ".tar.bz2", or on-disk directory name. */
   id: string;
   label: string;
   /** sherpa-onnx model family. */
@@ -21,7 +26,65 @@ export interface SttModelDescriptor {
   preferInt8: boolean;
   /** ONNX threads. 2 is a sensible default on mid-range Android. */
   numThreads: number;
+  /** Direct downloadable files (for loose Hugging Face files). */
+  downloadFiles?: readonly SttModelFile[];
 }
+
+const HF_INDIC_BASE =
+  'https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main';
+const INDIC_TOKENS_URL = `${HF_INDIC_BASE}/tokens.txt`;
+
+function createIndicConformer(
+  langCode: string,
+  langTag: string,
+  name: string
+): SttModelDescriptor {
+  return {
+    id: `indicconformer-${langCode}`,
+    label: `IndicConformer (${name})`,
+    modelType: 'nemo_ctc',
+    languages: [langTag],
+    approxMb: 188,
+    preferInt8: true,
+    numThreads: 2,
+    downloadFiles: [
+      { filename: 'tokens.txt', url: INDIC_TOKENS_URL },
+      {
+        filename: 'model.int8.onnx',
+        url: `${HF_INDIC_BASE}/${langCode}/model.int8.onnx`,
+      },
+    ],
+  };
+}
+
+export const INDIC_CONFORMER_HINDI = createIndicConformer('hi', 'hi-IN', 'Hindi');
+export const INDIC_CONFORMER_MARATHI = createIndicConformer('mr', 'mr-IN', 'Marathi');
+export const INDIC_CONFORMER_BENGALI = createIndicConformer('bn', 'bn-IN', 'Bengali');
+export const INDIC_CONFORMER_TAMIL = createIndicConformer('ta', 'ta-IN', 'Tamil');
+export const INDIC_CONFORMER_TELUGU = createIndicConformer('te', 'te-IN', 'Telugu');
+export const INDIC_CONFORMER_KANNADA = createIndicConformer('kn', 'kn-IN', 'Kannada');
+export const INDIC_CONFORMER_GUJARATI = createIndicConformer('gu', 'gu-IN', 'Gujarati');
+export const INDIC_CONFORMER_MALAYALAM = createIndicConformer('ml', 'ml-IN', 'Malayalam');
+
+export const INDIC_CONFORMER_ODIA: SttModelDescriptor = {
+  id: 'indicconformer-or',
+  label: 'IndicConformer (Odia)',
+  modelType: 'nemo_ctc',
+  languages: ['or-IN'],
+  approxMb: 188,
+  preferInt8: true,
+  numThreads: 2,
+  downloadFiles: [
+    {
+      filename: 'tokens.txt',
+      url: 'https://huggingface.co/OpenVoiceOS/ai4bharat-indicconformer-or-onnx/resolve/main/vocab.txt',
+    },
+    {
+      filename: 'model.int8.onnx',
+      url: 'https://huggingface.co/OpenVoiceOS/ai4bharat-indicconformer-or-onnx/resolve/main/model.int8.onnx',
+    },
+  ],
+};
 
 /**
  * Whisper base, multilingual.
@@ -71,17 +134,7 @@ export const WHISPER_BASE_MULTILINGUAL: SttModelDescriptor = {
 
 /**
  * Dolphin base CTC, multilingual.
- *
- * Preferred over Whisper for this app. Its vocabulary carries native tokens for
- * every language in the selector — Hindi, Marathi, Tamil, Bengali, Telugu,
- * Kannada, Gujarati — so Indic output comes back in its own script rather than
- * romanised. It is also a CTC model, so decoding is a single forward pass
- * instead of Whisper's autoregressive loop: far faster on a phone, which matters
- * for push-to-talk.
- *
- * It detects language itself and takes no language hint, which also removes a
- * failure mode Whisper has here: forcing `language="hi"` onto English or mixed
- * speech made it emit Perso-Arabic script.
+ * Retained as fallback for non-Indic or legacy setups.
  */
 export const DOLPHIN_SMALL_MULTILINGUAL: SttModelDescriptor = {
   id: 'sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02',
@@ -100,9 +153,6 @@ export const DOLPHIN_BASE_MULTILINGUAL: SttModelDescriptor = {
   id: 'sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02',
   label: 'Dolphin base CTC (multilingual)',
   modelType: 'dolphin',
-  // Every Indic language. Deliberately not English: Dolphin detects language
-  // itself with no way to pin it, and on Indian-accented English it settled on
-  // the wrong one and mixed scripts ("emogenسی" for "emergency").
   languages: [
     'hi-IN',
     'mr-IN',
@@ -132,38 +182,35 @@ export const NEMO_CTC_ENGLISH: SttModelDescriptor = {
   label: 'NeMo CTC (English)',
   modelType: 'nemo_ctc',
   languages: ['en-IN'],
-  // The GitHub release asset is 165,685,608 bytes (~158 MB), not 64 — verified
-  // via a HEAD request against the release URL. Only affects the UI's size
-  // label, not the download itself.
   approxMb: 158,
   preferInt8: true,
   numThreads: 2,
 };
 
 /**
- * Registry, most specific first.
- *
- * Whisper leads despite Dolphin being smaller and faster. Dolphin was tried on
- * device and heard the words correctly but rendered them in mixed scripts
- * ("emogenسی" for "emergency"): it detects language itself, the library exposes
- * no way to pin it, and it settled on the wrong one for Indian-accented English.
- * Whisper's forced-language option is worth its extra cost here.
- */
-/**
- * Registry, most specific first. Routing is by language, because no single
- * decoder in the sherpa-onnx release serves both English and Indic well:
- * Whisper mangles Indic scripts, Dolphin mangles English.
+ * Registry, most specific first. Routing is by language.
+ * AI4Bharat IndicConformer models take top priority for all Indic languages.
+ * English routes directly to NEMO_CTC_ENGLISH.
  */
 export const STT_MODELS: readonly SttModelDescriptor[] = [
+  NEMO_CTC_ENGLISH,
+  INDIC_CONFORMER_HINDI,
+  INDIC_CONFORMER_MARATHI,
+  INDIC_CONFORMER_BENGALI,
+  INDIC_CONFORMER_TAMIL,
+  INDIC_CONFORMER_TELUGU,
+  INDIC_CONFORMER_KANNADA,
+  INDIC_CONFORMER_GUJARATI,
+  INDIC_CONFORMER_MALAYALAM,
+  INDIC_CONFORMER_ODIA,
   DOLPHIN_SMALL_MULTILINGUAL,
   DOLPHIN_BASE_MULTILINGUAL,
-  NEMO_CTC_ENGLISH,
   WHISPER_SMALL_MULTILINGUAL,
   WHISPER_BASE_MULTILINGUAL,
 ];
 
 /** Shown on the install card when no language is selected yet. */
-export const PRIMARY_MODEL = DOLPHIN_SMALL_MULTILINGUAL;
+export const PRIMARY_MODEL = NEMO_CTC_ENGLISH;
 
 /** Silero VAD weights, used by the optional ONNX VAD backend. */
 export const SILERO_VAD_MODEL = {

@@ -1,5 +1,6 @@
 import { LANGUAGES } from '../../config/languages';
 import { resolveModelForLanguage, STT_MODELS, type SttModelDescriptor } from '../../config/models';
+import { tryRequireFs } from '../nativeModules';
 import type { SttEngineProvider } from '../stt/SttEngineProvider';
 import { ModelManager } from '../stt/ModelManager';
 
@@ -141,15 +142,6 @@ async function listDirWithSizes(
     }));
   } catch {
     return [];
-  }
-}
-
-function tryRequireFs(): any | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('@dr.pogodin/react-native-fs');
-  } catch {
-    return null;
   }
 }
 

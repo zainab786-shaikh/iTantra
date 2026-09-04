@@ -124,6 +124,15 @@ export function useTransmitterController(
   const activeRef = useRef(false);
   /** Set once the OS has granted RECORD_AUDIO, to skip re-asking each press. */
   const micGrantedRef = useRef(false);
+  /**
+   * Whether *we* started the native stream and still owe it a stop().
+   *
+   * Stopping a stream that was never started, or stopping it twice, tears down
+   * native audio objects while their callbacks are still in flight. That shows
+   * up as a SIGSEGV on the AudioPortEventH thread followed by "pthread_mutex_lock
+   * called on a destroyed mutex" — a use-after-free, not a JS error.
+   */
+  const streamStartedRef = useRef(false);
 
   const vadConfigRef = useRef<VadConfig>({
     ...DEFAULT_VAD_CONFIG,
@@ -369,6 +378,7 @@ export function useTransmitterController(
 
         try {
           await stream.start();
+          streamStartedRef.current = true;
         } catch (error) {
           // On a device that genuinely has a microphone, a failed start means
           // something else holds it — most often an in-progress phone call,
@@ -426,10 +436,15 @@ export function useTransmitterController(
     setIsActive(false);
 
     syntheticRef.current?.stop();
-    try {
-      stream?.stop?.();
-    } catch {
-      // Already stopped.
+    // activeRef is already false, so onBuffer drops anything still arriving
+    // between here and the stream actually halting.
+    if (streamStartedRef.current) {
+      streamStartedRef.current = false;
+      try {
+        stream?.stop?.();
+      } catch {
+        // Already stopped by the platform.
+      }
     }
 
     // Manual finalization: whatever is buffered becomes one last utterance,
@@ -450,12 +465,19 @@ export function useTransmitterController(
   // Release native resources when the screen unmounts.
   useEffect(() => {
     return () => {
+      // Order matters on teardown: stop feeding the pipeline, then halt the
+      // native stream, and only then release the decoders. Reversing this races
+      // the audio thread against objects it is still using. Fast Refresh runs
+      // this path on every edit, which is how the crash was being triggered.
       activeRef.current = false;
       syntheticRef.current?.stop();
-      try {
-        stream?.stop?.();
-      } catch {
-        // Already stopped.
+      if (streamStartedRef.current) {
+        streamStartedRef.current = false;
+        try {
+          stream?.stop?.();
+        } catch {
+          // Already stopped by the platform.
+        }
       }
       void vadRef.current?.dispose();
       void sttRef.current?.dispose();

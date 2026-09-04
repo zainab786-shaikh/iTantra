@@ -4,6 +4,7 @@ import { findLanguage } from '../../config/languages';
 import { resolveModelForLanguage, type SttModelDescriptor } from '../../config/models';
 import { SAMPLE_RATE } from '../../config/vadConfig';
 import { toSampleArray } from '../audio/pcm';
+import { hasSherpaOnnx, tryRequireFs } from '../nativeModules';
 import { ModelManager } from './ModelManager';
 import { repairScript } from './indicScript';
 import type { SttBackend, SttTranscription } from './SttBackend';
@@ -73,8 +74,10 @@ export class SherpaSttBackend implements SttBackend {
 
     const whisperLang = findLanguage(languageCode).sherpaLang;
     console.log(
-      `[SherpaSTT] loading ${descriptor.id} (${descriptor.modelType}, ` +
-        `int8=${descriptor.preferInt8}) with whisper language="${whisperLang}"`
+      `[SherpaSTT] Loading model: ${descriptor.label} (${descriptor.id})\n` +
+        `  Path: ${path}\n` +
+        `  Type: ${descriptor.modelType}\n` +
+        `  Language: ${findLanguage(languageCode).label} (${languageCode})`
     );
 
     this.engine = await createSTT({
@@ -175,18 +178,21 @@ export class SherpaSttBackend implements SttBackend {
     );
 
     const decodeMs = Date.now() - decodeStartedAt;
-
-    console.log(
-      `[SherpaSTT] requested="${findLanguage(languageCode).sherpaLang}" ` +
-        `reported="${result?.lang ?? ''}" text="${result?.text ?? ''}"`
-    );
-    console.log(
-      `[SttDiag] lang=${languageCode} audioMs=${Math.round(audioDurationMs)} ` +
-        `decodeMs=${decodeMs} rawText="${result?.text ?? ''}"`
-    );
+    const audioSec = (audioDurationMs / 1000).toFixed(2);
+    const decodeSec = (decodeMs / 1000).toFixed(2);
 
     const raw = typeof result?.text === 'string' ? result.text.trim() : '';
     const repair = repairScript(raw, languageCode);
+
+    console.log(
+      `[IndicASR] Diagnostics:\n` +
+        `  Language: ${findLanguage(languageCode).label} (${languageCode})\n` +
+        `  Sample Rate: ${SAMPLE_RATE} Hz (PCM Float32 mono)\n` +
+        `  Audio Duration: ${audioSec} sec\n` +
+        `  Inference Time: ${decodeSec} sec (${decodeMs} ms)\n` +
+        `  Raw Text: "${raw}"\n` +
+        `  Result: "${repair.text}"`
+    );
 
     if (repair.transliteratedFrom) {
       console.log(
@@ -199,11 +205,6 @@ export class SherpaSttBackend implements SttBackend {
         `[indicScript] rejected unrecoverable output for ${languageCode}: "${raw}"`
       );
     }
-
-    console.log(
-      `[SttDiag] lang=${languageCode} finalText="${repair.text}" ` +
-        `rejected=${repair.rejected} transliteratedFrom=${repair.transliteratedFrom ?? 'none'}`
-    );
 
     return {
       text: repair.text,
@@ -230,23 +231,9 @@ export class SherpaSttBackend implements SttBackend {
   }
 }
 
-/** Lazy filesystem access, for locating the self-test clip. */
-function tryRequireFs(): any | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('@dr.pogodin/react-native-fs');
-  } catch {
-    return null;
-  }
-}
-
 /** Resolve the sherpa-onnx STT subpath at runtime. */
 function requireSherpaStt(): { createSTT: (options: any) => Promise<any> } {
-  // Checked before the require, not after: react-native-sherpa-onnx calls
-  // TurboModuleRegistry.getEnforcing() at import time, so in Expo Go the module
-  // logs a red "could not be found" Invariant Violation before our catch block
-  // could swallow it. Bailing out early keeps the console honest.
-  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
+  if (!hasSherpaOnnx()) {
     throw new Error(
       'Expo Go cannot load react-native-sherpa-onnx (it ships native libraries). ' +
         'Run `npx expo run:android` for a development build to enable real decoding.'

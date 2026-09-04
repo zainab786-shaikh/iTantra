@@ -1,6 +1,11 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 
 import type { SttModelDescriptor } from '../../config/models';
+import {
+  tryRequireDownloadApi,
+  tryRequireExtraction,
+  tryRequireFs,
+} from '../nativeModules';
 
 /** Install state of a decoder on this device. */
 export type ModelStatus =
@@ -135,9 +140,46 @@ export class ModelManager {
 
     const targetDir = `${fs.DocumentDirectoryPath}/${SIDELOAD_DIR}`;
     const finalDir = `${targetDir}/${model.id}`;
-    const archivePath = `${fs.DocumentDirectoryPath}/${model.id}.tar.bz2`;
-
     await fs.mkdir(targetDir);
+
+    // Direct multi-file models (e.g. IndicConformer Hugging Face models)
+    if (model.downloadFiles && model.downloadFiles.length > 0) {
+      await fs.mkdir(finalDir);
+      const totalFiles = model.downloadFiles.length;
+      for (let i = 0; i < totalFiles; i++) {
+        const file = model.downloadFiles[i]!;
+        const dest = `${finalDir}/${file.filename}`;
+        if (await fs.exists(dest)) {
+          const stat = await fs.stat(dest);
+          if (Number(stat.size) > 0) {
+            continue;
+          }
+        }
+        const { promise } = fs.downloadFile({
+          fromUrl: file.url,
+          toFile: dest,
+          background: true,
+          progressInterval: 400,
+          progress: (res: { bytesWritten: number; contentLength: number }) => {
+            if (!res.contentLength) return;
+            const filePct = res.bytesWritten / res.contentLength;
+            const totalPct = Math.round(((i + filePct) / totalFiles) * 100);
+            onProgress(totalPct, 'downloading');
+          },
+        });
+        const result = await promise;
+        if (result.statusCode !== 200) {
+          throw new Error(
+            `Download of ${file.filename} failed with HTTP ${result.statusCode}`
+          );
+        }
+      }
+      onProgress(100, 'downloading');
+      this.cachedPaths.set(model.id, finalDir);
+      return finalDir;
+    }
+
+    const archivePath = `${fs.DocumentDirectoryPath}/${model.id}.tar.bz2`;
 
     try {
       const { promise } = fs.downloadFile({
@@ -215,45 +257,12 @@ function describeUnsupported(): string | null {
 /** Directory under the app's documents dir scanned for hand-installed models. */
 export const SIDELOAD_DIR = 'itantra-models';
 
-/** Lazy, failure-tolerant access to the filesystem module. */
-function tryRequireFs(): any | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('@dr.pogodin/react-native-fs');
-  } catch {
-    return null;
-  }
-}
-
 /** Stable download URL for a model's release archive. */
 function releaseUrlFor(model: SttModelDescriptor): string {
   return (
     'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/' +
     `${model.id}.tar.bz2`
   );
-}
-
-/** Lazy, failure-tolerant access to the tar.bz2 extractor. */
-function tryRequireExtraction(): any | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('react-native-sherpa-onnx/extraction');
-  } catch {
-    return null;
-  }
-}
-
-/** Lazy, failure-tolerant access to the library's download subpath. */
-function tryRequireDownloadApi(): any | null {
-  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
-    return null;
-  }
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('react-native-sherpa-onnx/download');
-  } catch {
-    return null;
-  }
 }
 
 function messageOf(error: unknown): string {

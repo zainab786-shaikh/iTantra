@@ -1,8 +1,7 @@
-import Constants, { ExecutionEnvironment } from 'expo-constants';
-
 import { resolveTtsModelForLanguage } from '../../config/ttsModels';
 import { SAMPLE_RATE } from '../../config/vadConfig';
 import { resampleLinear } from '../audio/pcm';
+import { hasSherpaOnnx } from '../nativeModules';
 import { TtsModelManager } from '../tts/TtsModelManager';
 
 /**
@@ -62,8 +61,8 @@ export async function synthesizeReferenceAudio(
 }
 
 function requireSherpaTts(): { createTTS: (options: any) => Promise<any> } {
-  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
-    throw new Error('Expo Go cannot load react-native-sherpa-onnx.');
+  if (!hasSherpaOnnx()) {
+    throw new Error('react-native-sherpa-onnx native module is not present in this build.');
   }
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mod = require('react-native-sherpa-onnx/tts');

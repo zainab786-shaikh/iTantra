@@ -2,6 +2,7 @@ import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 
 import type { TtsModelDescriptor } from '../../config/ttsModels';
+import { hasSherpaOnnx, tryRequireFs } from '../nativeModules';
 
 export interface SpeakResult {
   synthesisMs: number;
@@ -135,17 +136,8 @@ export class TtsEngine {
   }
 }
 
-function tryRequireFs(): any | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('@dr.pogodin/react-native-fs');
-  } catch {
-    return null;
-  }
-}
-
 function requireSherpaTts(): { createTTS: (options: any) => Promise<any> } {
-  if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
+  if (!hasSherpaOnnx()) {
     throw new Error(
       'Expo Go cannot load react-native-sherpa-onnx (it ships native libraries). ' +
         'Run `npx expo run:android` for a development build to enable speech playback.'

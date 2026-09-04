@@ -1,6 +1,7 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 
 import type { TtsModelDescriptor } from '../../config/ttsModels';
+import { tryRequireExtraction, tryRequireFs } from '../nativeModules';
 import type { TtsVoiceStatus } from './types';
 
 /**
@@ -229,23 +230,6 @@ function describeUnsupported(): string | null {
   return null;
 }
 
-function tryRequireFs(): any | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('@dr.pogodin/react-native-fs');
-  } catch {
-    return null;
-  }
-}
-
-function tryRequireExtraction(): any | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('react-native-sherpa-onnx/extraction');
-  } catch {
-    return null;
-  }
-}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

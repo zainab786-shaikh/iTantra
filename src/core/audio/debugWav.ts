@@ -1,4 +1,5 @@
 import { SAMPLE_RATE } from '../../config/vadConfig';
+import { tryRequireFs } from '../nativeModules';
 
 /**
  * Writes a captured segment to a WAV file for offline inspection.
@@ -12,13 +13,8 @@ export async function dumpSegmentWav(
   samples: Float32Array,
   path: string
 ): Promise<void> {
-  let fs: any;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    fs = require('@dr.pogodin/react-native-fs');
-  } catch {
-    return;
-  }
+  const fs = tryRequireFs();
+  if (!fs) return;
 
   const bytes = encodeWav(samples, SAMPLE_RATE);
   await fs.writeFile(path, toBase64(bytes), 'base64');

@@ -22,7 +22,6 @@
 const BLOCKS: Record<string, number> = {
   devanagari: 0x0900,
   bengali: 0x0980,
-  gurmukhi: 0x0a00,
   gujarati: 0x0a80,
   oriya: 0x0b00,
   tamil: 0x0b80,
