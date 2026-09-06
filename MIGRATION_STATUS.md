@@ -109,12 +109,76 @@ None — no RN application source under `src/`, `app.json`, `package.json`, or a
 
 ---
 
+## Phase 1 — Create the native Kotlin shell
+
+**Status:** COMPLETE
+**Date:** 2026-09-06
+
+### What was built
+
+A new, hand-authored Gradle Android project at `android-native/`, independent of the Expo-generated `android/` directory the RN baseline uses (that directory is untouched and remains git-ignored per Phase 0). This is deliberately **not** a copy of the RN app's Android project structure or Gradle configuration — it is a standard, from-scratch Kotlin/Compose Gradle project.
+
+```
+android-native/
+  settings.gradle.kts / build.gradle.kts / gradle.properties / local.properties (ignored)
+  gradle/wrapper/            (Gradle 9.3.1 — same version proven working for the RN baseline)
+  app/
+    build.gradle.kts
+    src/main/
+      AndroidManifest.xml
+      java/com/itantra/app/
+        MainActivity.kt
+        ui/theme/
+          Color.kt           (ported verbatim from src/ui/theme.ts)
+          Dimens.kt          (ported verbatim from src/ui/theme.ts)
+          Theme.kt
+      res/values/{strings,colors,themes}.xml
+      res/mipmap-xxxhdpi/{ic_launcher,ic_launcher_round}.png (reused directly from assets/icon.png)
+```
+
+**Toolchain choices and why:**
+- Android package `com.itantra.app`, matching the RN app's identity, per the phase instructions ("existing package/application identity where possible").
+- `minSdk 24` / `targetSdk 34` / `compileSdk 36` — copied from the frozen RN baseline (Phase 0), not chosen independently.
+- AGP `8.12.0` / Kotlin `2.1.20` — the exact versions already confirmed to resolve and build successfully for the RN project on this machine (via `./gradlew buildEnvironment`), not arbitrary picks.
+- Compose via the Kotlin `org.jetbrains.kotlin.plugin.compose` compiler plugin (no separate Compose-compiler-version table needed for Kotlin ≥ 2.0).
+- AndroidX/Compose dependency versions were **deliberately pinned below the newest releases**: the first build attempt with the latest `compose-bom` (2026.08.00) and latest `core-ktx`/`activity-compose`/`lifecycle-runtime-ktx` failed, because those releases are now compiled against `compileSdk 37` and require `AGP 9.1.0+` — neither of which is installed/proven on this machine (only SDK platforms 35/36 are installed locally). Rather than pull in an unverified AGP/SDK jump for a Phase 1 shell, dependencies were pinned to the most recent versions still compiled against `compileSdk 36`: `compose-bom 2025.09.00`, `core-ktx 1.16.0`, `activity-compose 1.11.0`, `lifecycle-runtime-ktx 2.9.4`. This is recorded as a deliberate, documented choice, not an oversight — revisiting it (bumping compileSdk/AGP together, once platform 37 and a newer AGP are verified) is legitimate future toolchain work, not a Phase 1 blocker.
+- `MainActivity.kt` renders a minimal placeholder Compose screen, explicitly labeled "PHASE 1 shell" in its own doc comment and on-screen — it is **not** the product's Transmit/Receive UI (that is Phase 10). It exists only to prove Compose renders end-to-end with the ported design tokens.
+- The `audio/`, `stt/`, `tts/`, `packet/`, `transport/`, `model/`, `core/`, `diagnostics/` package directories described in the phase's target structure were **not** pre-scaffolded as empty folders. Git does not track empty directories, and creating placeholder files with no real content in them would be inventing scaffolding ahead of the phases that actually populate them (Phase 2 onward). Each package will be created as a real file first lands in it.
+- No custom `Application` subclass was added — nothing in the Phase 1 shell needs initialization beyond Android's default, so one was not invented ("only where necessary").
+- No Android permissions are declared yet (no `RECORD_AUDIO`, `INTERNET`, etc.) — none of the shell's code uses any capability that needs them yet. These will be added alongside the phases that actually need them (audio capture in Phase 3, etc.).
+
+### Build verification
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** (35 actionable tasks: 34 executed, 1 up-to-date, ~2m9s). Produced `android-native/app/build/outputs/apk/debug/app-debug.apk`, 12.4 MB — for comparison, the RN debug APK is 357.9 MB; the difference is expected at this stage (no Hermes/JS bundle, no RN native libraries across four ABIs, no sherpa-onnx yet).
+
+One non-blocking deprecation warning: `android.kotlinOptions` is deprecated in favor of the newer `compilerOptions` DSL. Left as-is rather than chased down mid-phase since it does not affect build correctness; worth cleaning up opportunistically in a later phase.
+
+### Device test
+
+**NOT TESTED** — no physical Android device is connected in this environment (`adb devices` still returns an empty list, same open item as Phase 0). Launch/render on a physical device is unverified. This must be confirmed as soon as a device is available; it is the one part of this phase's exit criteria ("install on the physical device") that could not be completed here.
+
+**Note for when a device is used:** since the new app deliberately shares `applicationId com.itantra.app` with the RN debug build (per the phase's own instruction to preserve the existing identity), and each Gradle project signs debug builds with its own auto-generated debug keystore, installing one over the other once both exist on the same device will likely require uninstalling the previously-installed one first (`INSTALL_FAILED_UPDATE_INCOMPATIBLE` on a signature mismatch is the expected symptom, not a bug). This is expected transitional behavior for a migration that intentionally keeps the same package identity, not a defect to fix now.
+
+### Known issues (Phase 1)
+
+1. **No physical device connected** — carried over from Phase 0; blocks the "install on physical device" exit criterion specifically.
+2. **AndroidX/Compose dependencies pinned below latest** due to the compileSdk 36/AGP 8.12.0 ceiling on this machine (see above) — not a defect, but flagged so a future toolchain upgrade (SDK platform 37 + AGP 9.1.0+) is a deliberate, tracked decision rather than something that "just happened."
+3. **`kotlinOptions` deprecation warning** in `app/build.gradle.kts` — cosmetic, non-blocking.
+
+### Regression notes
+
+No RN application source, `android/` directory, or any tracked file outside `android-native/`, `.gitignore`, and this status document was modified. The RN baseline (`main`, tag `pre-kotlin-migration`) remains untouched and still builds (confirmed in Phase 0).
+
+One incidental finding during this phase: `MIGRATION_AUDIT.md`'s working-tree copy was found to have a single corrupted line (a truncated sentence in §A) with no corresponding intentional edit made to that file this session. It was restored from the last commit (`git restore MIGRATION_AUDIT.md`) before anything was staged; the committed history was never corrupted, and the restored content was verified byte-for-byte against `git show HEAD:MIGRATION_AUDIT.md`. Root cause unknown — flagged here for visibility, not because it's understood.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
 |---|---|---|---|---|
 | 0 — Freeze current system | **COMPLETE** | RN native build: **PASS** (fixed a `local.properties` path-escaping bug introduced during this phase); TS typecheck: PASS | NOT TESTED (no device connected) | No device connected |
-| 1 — Native Kotlin shell | Not started | — | — | — |
+| 1 — Native Kotlin shell | **COMPLETE** | PASS (12.4 MB debug APK) | NOT TESTED (no device connected) | No device connected; deps pinned below latest (documented, not a defect) |
 | 2 — Direct Sherpa-ONNX integration | Not started | — | — | — |
 | 3 — Native audio capture | Not started | — | — | — |
 | 4 — VAD + sentence segmentation | Not started | — | — | — |
