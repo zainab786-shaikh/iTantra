@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.iTantra" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/void_background</item>
+        <item name="android:statusBarColor">@color/void_background</item>
+        <item name="android:navigationBarColor">@color/void_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

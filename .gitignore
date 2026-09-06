@@ -40,6 +40,16 @@ yarn-error.*
 /ios
 /android
 
+# android-native: the hand-authored native Kotlin migration target (tracked).
+# Only its Gradle build output / local machine config is ignored, unlike
+# /android above, which is entirely Expo-generated and untracked wholesale.
+/android-native/local.properties
+/android-native/.gradle/
+/android-native/.kotlin/
+/android-native/build/
+/android-native/app/build/
+/android-native/app/.cxx/
+
 # scratch / temp / large model files
 .scratch/
 .metro-log.txt

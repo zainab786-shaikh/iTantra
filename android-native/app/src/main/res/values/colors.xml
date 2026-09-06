@@ -1,0 +1,10 @@
+<resources>
+    <!--
+        XML-side mirror of the "void" background token from src/ui/theme.ts
+        (#0A0A0A), used only for the pre-Compose window background so there is
+        no white flash before the Compose theme paints. All other design
+        tokens live in Kotlin (ui/theme/Theme.kt), ported verbatim from
+        src/ui/theme.ts — this file intentionally does not duplicate them.
+    -->
+    <color name="void_background">#0A0A0A</color>
+</resources>
