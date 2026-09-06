@@ -1,5 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+        Matches app.json's expo.android.permissions for the RN baseline
+        (see MIGRATION_STATUS.md Phase 0). Only RECORD_AUDIO is added here,
+        in Phase 3, because it's the only one this phase's code actually
+        uses; FOREGROUND_SERVICE/_MICROPHONE belong with whichever later
+        phase actually needs a foreground service.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

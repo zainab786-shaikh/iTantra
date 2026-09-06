@@ -1,9 +1,11 @@
 package com.itantra.app
 
+import android.Manifest
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,11 +17,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.itantra.app.audio.AudioCapture
+import com.itantra.app.diagnostics.AudioCaptureProbeSection
 import com.itantra.app.diagnostics.SttProbeSection
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppSizing
@@ -36,16 +43,30 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        var audioPermissionGranted by mutableStateOf(AudioCapture.hasPermission(this))
+        val requestAudioPermission = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted -> audioPermissionGranted = granted }
+
         setContent {
             ITantraTheme {
-                ShellScreen()
+                ShellScreen(
+                    audioPermissionGranted = audioPermissionGranted,
+                    onRequestAudioPermission = {
+                        requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ShellScreen() {
+private fun ShellScreen(
+    audioPermissionGranted: Boolean,
+    onRequestAudioPermission: () -> Unit,
+) {
     Scaffold(
         containerColor = AppColor.Void,
     ) { innerPadding ->
@@ -72,6 +93,10 @@ private fun ShellScreen() {
                 fontWeight = FontWeight.Bold,
             )
             SttProbeSection()
+            AudioCaptureProbeSection(
+                hasPermission = audioPermissionGranted,
+                onRequestPermission = onRequestAudioPermission,
+            )
         }
     }
 }
@@ -80,6 +105,6 @@ private fun ShellScreen() {
 @Composable
 private fun ShellScreenPreview() {
     ITantraTheme {
-        ShellScreen()
+        ShellScreen(audioPermissionGranted = false, onRequestAudioPermission = {})
     }
 }

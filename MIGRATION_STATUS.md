@@ -252,6 +252,50 @@ No RN application source was touched. `android/` (RN baseline) untouched. All ne
 
 ---
 
+## Phase 3 — Native Audio Capture
+
+**Status:** COMPLETE, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was built
+
+Direct port of `src/core/audio/AudioCaptureService.ts` + `src/core/audio/pcm.ts`, plus a new `android.media.AudioRecord` wrapper replacing `expo-audio`'s `useAudioStream()`:
+
+- **`audio/PcmMath.kt`** — direct port of `pcm.ts`: `int16ToFloat32` (same asymmetric `/32768` vs `/32767` scaling), `rms`, `zeroCrossingRate`, `rmsToLevel`, `resampleLinear`, `concatFloat32`. `int16ToFloat32` takes a `ShortArray` rather than raw bytes, since `AudioRecord.read(ShortArray, ...)` already decodes PCM16LE — the byte-parsing step in the TS version exists only because `expo-audio` hands back raw bytes; the scaling math is unchanged.
+- **`audio/AudioFrame.kt`** — direct port of the `PcmFrame` interface in `src/core/types.ts`.
+- **`audio/AudioCaptureService.kt`** — direct port of `AudioCaptureService.ts`: same residue-buffer reframing into exact `frameSize` (512) chunks, same resample-if-hardware-rate-differs logic (kept for parity even though Android's `AudioRecord` guarantees delivery at the constructed sample rate, unlike `expo-audio`, so this path is not expected to trigger in practice — not removed regardless, per "preserve existing behavior"). `SAMPLE_RATE = 16000` and `DEFAULT_FRAME_SIZE = 512` are copied verbatim from `src/config/vadConfig.ts`.
+- **`audio/AudioCapture.kt`** — new: the actual `AudioRecord` lifecycle (permission check via `ContextCompat.checkSelfPermission`, construct/start/stop/release, background read thread feeding `AudioCaptureService`). Holds no VAD logic, per the phase's explicit instruction. Mirrors the RN controller's explicit "microphone unavailable" error behavior (`useTransmitterController.ts`'s `startPtt()`) rather than silently continuing if `AudioRecord` fails to initialize or start. `AudioSource.MIC` (plain, unprocessed mic input) was chosen over `VOICE_RECOGNITION`/`VOICE_COMMUNICATION` specifically to avoid introducing device-side AGC/noise-suppression/echo-cancellation that `expo-audio`'s own internal configuration (not independently inspectable from this repo) may or may not have applied — documented as a judgment call, not a confirmed match.
+- **No `SyntheticAudioSource` port** — that class existed in the RN app only to cover `expo-audio`'s web/Expo Go gap, where no real microphone stream exists. A native Android app always has a real `AudioRecord`, so this has nothing to stand in for (already flagged in `MIGRATION_AUDIT.md` §C).
+- `AndroidManifest.xml`: added `<uses-permission android:name="android.permission.RECORD_AUDIO" />` — the only permission this phase's code needs; others (`FOREGROUND_SERVICE`, etc.) are deferred to whichever later phase actually uses them.
+- `MainActivity.kt`: added the runtime permission request (`ActivityResultContracts.RequestPermission()`), requested on-demand (first capture attempt) rather than proactively at launch — matching the RN controller's own on-demand request in `startPtt()`.
+- `diagnostics/AudioCaptureProbeSection` — temporary diagnostic (not product UI): start/stop button, live frame count and last RMS displayed on screen.
+
+### On-device verification
+
+Verified with a fully clean slate (complete `adb uninstall` + fresh install, not just a reinstall, to guarantee no prior permission grant or state could carry over):
+
+- Permission state confirmed **not granted** before requesting (`dumpsys package` showed no `RECORD_AUDIO` grant), UI correctly showed "RECORD_AUDIO not granted yet." / "GRANT MICROPHONE PERMISSION".
+- After requesting, `dumpsys package` confirmed `android.permission.RECORD_AUDIO: granted=true, flags=[ USER_SET]`.
+- Capture started: Android's system-level microphone-in-use indicator (the green status-bar dot, an OS-level privacy signal independent of this app, present on Android 12+) appeared, confirming genuine hardware microphone access — not just a UI state claiming to capture.
+- Over the verification session, the probe reported real, incrementing frame counts and small non-zero, plausible ambient-room RMS values (e.g. `0.0201`–`0.0316`), ending at **1783 frames captured, cleanly stopped**.
+- App process survived the entire sequence (permission grant → start → ~real-time capture → stop) with the same PID throughout; no `FATAL EXCEPTION`/`AndroidRuntime`/`SIGSEGV` in logcat.
+
+**Investigation note, reported transparently rather than glossed over:** during this verification, the diagnostic screen twice showed results (a completed English STT run, and later a completed Bengali "pending" probe touch) that did not correspond to any tap I had just issued in that moment. Investigated directly rather than assumed: `dumpsys package` confirmed permission grants really did occur (not fabricated by the UI), no accessibility service was enabled, and no `monkey`/`uiautomator`/`appium` process was running on the device (checked via `ps -A`). The most consistent explanation, based on a controlled clean-slate replay (uninstall → fresh install → screenshot-verify-idle → one explicit tap → screenshot again), is a combination of (a) this specific vivo/FuntouchOS device auto-granting the runtime permission for an ADB-sideloaded debuggable app without an interactive dialog (a known category of OEM developer-convenience behavior), and (b) an occasional input-event duplication/delay on this device's USB/ADB link — consistent with the ADB driver instability already diagnosed at the start of this device's use in this migration (see Phase 1's device-check section). This is a **test-environment/tooling artifact of this specific device and connection, not application behavior** — the app's own code has no timers, auto-triggers, or background execution paths that could run a probe on their own; every code path here only executes inside an explicit button `onClick`. Recorded here for transparency and so future sessions on this same device budget for occasional confirm-with-screenshot-after-every-tap discipline, not because the application itself is suspect.
+
+### Known issues (Phase 3)
+
+1. Same ADB input-delivery quirk noted above — worth keeping in mind for future on-device testing on this specific device.
+2. `AudioSource.MIC` was a judgment call (see above) since `expo-audio`'s internal source configuration isn't independently inspectable; if real-device VAD behavior in Phase 4 ever looks meaningfully different from the RN app's, this is the first place to check.
+3. The resampling fallback path in `AudioCaptureService.pushBuffer()` is believed unreachable on Android's `AudioRecord` (which resamples internally to the requested rate) — kept for parity, not verified as reachable, since this device's hardware happens to support 16 kHz natively.
+4. Diagnostic UI (`AudioCaptureProbeSection`) is temporary, same as Phase 2's — to be removed/relocated in Phase 16.
+
+### Regression notes
+
+No RN application source touched. No VAD, segmentation, STT wiring, or UI redesign work done — capture only, per explicit scope. `MockTransport`/transport untouched. No Bluetooth/Wi-Fi/BLE code added. No STT/TTS models, thresholds, or algorithms changed.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -259,7 +303,7 @@ No RN application source was touched. `android/` (RN baseline) untouched. All ne
 | 0 — Freeze current system | **COMPLETE** | RN native build: **PASS** (fixed a `local.properties` path-escaping bug introduced during this phase); TS typecheck: PASS | NOT TESTED (no device connected) | No device connected |
 | 1 — Native Kotlin shell | **COMPLETE** | PASS (12.4 MB debug APK) | **PASS** (vivo V2055, Android 13/SDK 33, arm64-v8a — launched, rendered, no crash) | Deps pinned below latest (documented, not a defect); RN app uninstalled from this test device to free the shared applicationId |
 | 2 — Direct Sherpa-ONNX integration | **COMPLETE** | PASS | **PASS** — English exact-match, Hindi real inference (see detail above) | Logcat unavailable on this device; Hindi input has no verified ground truth; diagnostic UI is temporary |
-| 3 — Native audio capture | Not started | — | — | — |
+| 3 — Native audio capture | **COMPLETE** | PASS | **PASS** — real permission grant, real AudioRecord capture (OS mic indicator, real RMS, 1783 frames), clean stop, no crash | ADB input-delivery quirk on this device (investigated, benign); AudioSource choice is a judgment call |
 | 4 — VAD + sentence segmentation | Not started | — | — | — |
 | 5 — Complete STT pipeline | Not started | — | — | — |
 | 6 — Packet layer | Not started | — | — | — |
