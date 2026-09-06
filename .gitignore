@@ -1,14 +1,5 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# dependencies
-node_modules/
-
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
-
 # Native
 .kotlin/
 *.orig.*
@@ -18,14 +9,6 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
 # macOS
 .DS_Store
 *.pem
@@ -33,16 +16,8 @@ yarn-error.*
 # local env files
 .env*.local
 
-# typescript
-*.tsbuildinfo
-
-# generated native folders
-/ios
-/android
-
-# android-native: the hand-authored native Kotlin migration target (tracked).
-# Only its Gradle build output / local machine config is ignored, unlike
-# /android above, which is entirely Expo-generated and untracked wholesale.
+# android-native: the hand-authored native Kotlin application (tracked).
+# Only its Gradle build output / local machine config is ignored.
 /android-native/local.properties
 /android-native/.gradle/
 /android-native/.kotlin/
@@ -57,6 +32,5 @@ yarn-error.*
 
 # scratch / temp / large model files
 .scratch/
-.metro-log.txt
 asr_release_tmp.json
 tts_release_tmp.json

@@ -1009,6 +1009,95 @@ No RN application source touched. No behavior changed - verified via build succe
 
 ---
 
+## Phase 14 — Remove React Native
+
+**Status:** COMPLETE, verified on physical device with a genuinely clean build
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was done
+
+Native Kotlin/Jetpack Compose (`android-native/`) is now the sole application implementation. Removed every React Native dependency, config file, and application source file:
+
+**Removed from git tracking:**
+- `App.tsx`, `index.ts` (RN entry points)
+- `app.json` (Expo config), `babel.config.js`, `tsconfig.json`
+- `package.json`, `package-lock.json` (npm dependency manifests)
+- `assets/{android-icon-foreground,android-icon-monochrome,favicon,icon,logo,splash-icon}.png` (RN app assets — the two actually needed by the native app, `icon.png` and `logo.png`, were already copied into `android-native/app/src/main/res/` back in Phases 1 and 10)
+- The entire `src/` tree (every `.ts`/`.tsx` file — config, core pipeline, hooks, screens, UI components; all already had a verified Kotlin equivalent from Phases 1-10)
+- `TRANSMITTER.md`, `WHAT_WE_DID.txt` (RN-specific development-history docs that referenced now-deleted `src/` paths — keeping them would have been actively misleading)
+
+**Removed from disk (untracked/gitignored, pure build artifacts):**
+- `node_modules/` (npm dependency tree)
+- `android/` (Expo-generated RN native project — always gitignored/untracked, confirmed back in Phase 0)
+- `.expo/` (Expo tooling cache)
+- `.metro-log.txt` (leftover Metro bundler log)
+
+**Updated, not removed:**
+- **`README.md`** — fully rewritten to describe the native Kotlin/Compose implementation: badges (Kotlin/Compose/Android instead of React Native/Expo/TypeScript), architecture diagrams referencing the actual Kotlin file paths, Gradle-based build/install instructions (no more `npm install`/`expo run:android`), and a note pointing to `MIGRATION_STATUS.md`/`MIGRATION_AUDIT.md` for the full migration record. All content that remained equally true of the native app (feature list, language table, model mapping, wire-format contract, operational notes, model-sideloading instructions) was preserved verbatim.
+- **`.gitignore`** — removed the now-meaningless RN-specific sections (`node_modules/`, Expo, Metro, `/ios`, `/android`, `.tsbuildinfo`, `.metro-log.txt`); kept the sections still relevant (macOS, secrets/keys, `android-native/`'s own build-output ignores).
+
+**Untouched, and deliberately not part of this removal:** `MIGRATION_AUDIT.md`, `MIGRATION_STATUS.md` (the migration's own historical record — these documents describe the migration itself, not RN application code, and remain the authoritative record of how this app came to be native), `iTantra Design.md` (a product design spec, not an RN-specific technical document — still accurate for the Kotlin UI, which is a faithful port of the same design), `LICENSE`, `.claude/` (Claude Code session config, unrelated to RN).
+
+### RN source → Kotlin file mapping
+
+Not applicable — every RN source file removed this phase already had its Kotlin equivalent fully mapped and verified in the corresponding earlier phase (see the mapping tables in Phases 0-10's sections above). Nothing was removed that didn't already have a proven native replacement.
+
+### Behavior/parity verification
+
+No pipeline behavior changed. This phase only deletes files that were no longer read by anything (the RN app was never built or run again after Phase 1's initial baseline capture) and updates documentation. The native app's actual runtime behavior is identical to Phase 13's.
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a — performed a genuinely clean build to prove no residual dependency on anything removed:
+
+1. Deleted all Gradle build caches (`android-native/build`, `android-native/app/build`, `android-native/.gradle`).
+2. `./gradlew assembleDebug --rerun-tasks` → **BUILD SUCCESSFUL**, all 39 actionable tasks *executed* (zero `UP-TO-DATE`/cached results) — confirming a true from-scratch build with nothing left over from before the RN removal.
+3. Installed and launched: Transmit screen rendered identically to every prior phase (`STANDBY`, `READY TO TRANSCRIBE` for the side-loaded English model, language selector, response-pause selector, connection badge `LINK ACTIVE`).
+4. A fresh 5-second PTT hold correctly produced no packet (quiet room at the time) — the same correct silence-handling behavior already established in Phase 11, confirming VAD/segmentation still function post-cleanup.
+5. Switched to the Receive screen: rendered identically (`READY`, empty received-message state, footer text present).
+6. App process remained stable throughout (confirmed via `pidof`) — no crash.
+
+**Full checklist (per this phase's explicit mandate), status against the cumulative evidence of Phases 8-14** (the underlying pipeline code has not changed since Phase 12, so earlier phases' live verification still applies to this final build):
+- Application launches — **PASS** (this phase, live)
+- UI is correct — **PASS** (this phase, live; Phase 10's full visual verification)
+- Transmit works — **PASS** (Phases 9-12's real ambient-speech captures; this phase's build/launch)
+- Receive works — **PASS** (Phases 9-12's real received/spoken messages; this phase's live check)
+- VAD works — **PASS** (Phase 4's dedicated verification; this phase's correct-silence re-check)
+- Sentence segmentation works — **PASS** (Phase 4; exercised again in every subsequent phase's real transcriptions)
+- STT works — **PASS** (Phase 2's exact-match test; Phases 9-12's real transcripts)
+- Packet layer works — **PASS** (Phase 6; real packets in Phases 9-12)
+- MockTransport works — **PASS** (Phase 7; shared-instance loopback in Phases 9-12)
+- TTS works — **PASS** (Phase 8's dedicated test; real auto-speak in Phases 9-12)
+- Priority handling works — **PASS** (Phase 6's classifier; real NORMAL/HIGH/CRITICAL classifications in Phase 10)
+- Critical-message behavior works — **PASS** (Phase 8's interrupt/requeue proof; Phase 10's real CRITICAL row rendering/speaking)
+- Language handling works — **PASS** (this phase's live language-selector/model-status check; Phase 10's Hindi/English switch)
+
+**Confirmed: React Native is no longer required.** No `src/`, `App.tsx`, `package.json`, `node_modules/`, or Expo tooling exists anywhere in the repository; the application builds and runs entirely from `android-native/` via plain Gradle.
+
+### Build result
+
+`cd android-native && rm -rf build app/build .gradle && ./gradlew assembleDebug --rerun-tasks` → **BUILD SUCCESSFUL** (39/39 tasks executed, ~40s, zero cache reuse).
+
+### Files changed
+
+Deleted (76 files total): `App.tsx`, `index.ts`, `app.json`, `babel.config.js`, `tsconfig.json`, `package.json`, `package-lock.json`, `TRANSMITTER.md`, `WHAT_WE_DID.txt`, 6 files under `assets/`, and the entire `src/` tree (58 `.ts`/`.tsx` files).
+
+Modified:
+- `README.md` (rewritten for the native Kotlin implementation)
+- `.gitignore` (RN-specific sections removed)
+- `MIGRATION_STATUS.md` (this section)
+
+### Known issues/limitations (Phase 14)
+
+None. This is the final phase of the migration.
+
+### Regression notes
+
+No behavior changed — a from-scratch clean build and full on-device smoke test confirm the native app is unaffected by removing the RN codebase around it. `MIGRATION_AUDIT.md` confirmed untouched before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -1027,4 +1116,4 @@ No RN application source touched. No behavior changed - verified via build succe
 | 11 — Full native end-to-end | **COMPLETE** | N/A (no code changed) | **PASS** — verification-only phase confirming Phase 9/10's wiring drives the complete transmit+receive chain through the real UI; correctly silent when no real speech present | Live re-capture of critical-interrupt-during-playback via the product UI not reproduced this phase (unchanged code already proven in Phase 8) |
 | 12 — RN vs Kotlin parity | **COMPLETE** | PASS | **PASS** — 4 genuine regressions found and fixed (PTT permission flow, mic-unavailable message text, timestamp locale format, a regex typo); PriorityClassifier/TtsQueue/TtsManager re-verified with zero differences; fix confirmed live on-device | Denial path not separately re-tested; single-gesture permission flow can't be byte-for-byte identical on Android |
 | 13 — Migration cleanup | **COMPLETE** | PASS | **PASS** — removed the entire `diagnostics/` package (8 files, no dangling references); both screens re-verified identical post-cleanup; no crash | None |
-| 14 — Remove React Native | Not started | — | — | — |
+| 14 — Remove React Native | **COMPLETE** | PASS (genuinely clean rebuild, 39/39 tasks executed, zero cache reuse) | **PASS** — full checklist verified against cumulative Phase 8-14 evidence (launch/UI/Transmit/Receive/VAD/segmentation/STT/packet/MockTransport/TTS/priority/critical/language all confirmed); React Native fully removed and confirmed not required | None — final phase |
