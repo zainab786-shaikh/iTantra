@@ -155,15 +155,25 @@ One non-blocking deprecation warning: `android.kotlinOptions` is deprecated in f
 
 ### Device test
 
-**NOT TESTED** — no physical Android device is connected in this environment (`adb devices` still returns an empty list, same open item as Phase 0). Launch/render on a physical device is unverified. This must be confirmed as soon as a device is available; it is the one part of this phase's exit criteria ("install on the physical device") that could not be completed here.
+**PASS**, confirmed 2026-09-06 on a connected physical device: **vivo V2055**, Android 13 (SDK 33), primary ABI `arm64-v8a` (also lists `armeabi-v7a`, `armeabi`), serial `96403182140002V`.
 
-**Note for when a device is used:** since the new app deliberately shares `applicationId com.itantra.app` with the RN debug build (per the phase's own instruction to preserve the existing identity), and each Gradle project signs debug builds with its own auto-generated debug keystore, installing one over the other once both exist on the same device will likely require uninstalling the previously-installed one first (`INSTALL_FAILED_UPDATE_INCOMPATIBLE` on a signature mismatch is the expected symptom, not a bug). This is expected transitional behavior for a migration that intentionally keeps the same package identity, not a defect to fix now.
+Getting there required resolving two real environmental blockers, both handled with explicit user sign-off before any state-changing action:
+
+1. **ADB initially saw zero devices** despite the phone being physically connected. Diagnosed via Windows Device Manager: the phone's "ADB Interface" enumerated with driver status "Unknown" (no bound driver) — a standard missing-USB-driver symptom, not a code issue. Resolved without any driver installation: the user enabled USB debugging / accepted the on-device authorization prompt, after which `adb devices` immediately showed the device as `device` (authorized). No Windows driver was installed or modified.
+2. **Signature conflict, exactly as anticipated in this phase's own risk note above.** The RN debug APK was installed first (Step 2 of the requested verification sequence) to confirm ADB install/launch capability — succeeded, launched, ran cleanly (pid stable, only a benign self-labeled `ReactNoCrashSoftException` from RN's own window-focus lifecycle handling in logcat, no fatal exception). Installing the native shell APK next then failed exactly as predicted: `INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.itantra.app signatures do not match newer version`. Per the user's own instruction this was reported as an expected signing conflict, not a bug, and the RN install was preserved rather than silently removed. The user then explicitly authorized uninstalling the RN debug build; only after that explicit go-ahead was `adb uninstall com.itantra.app` run.
+
+With the applicationId freed, the native shell APK installed and launched cleanly: process stable (no fatal exception in logcat), and a device screenshot confirms the Compose UI actually renders on real hardware — near-black background, "iTantra" title, "NATIVE SHELL · PHASE 1" label, matching the ported design tokens exactly.
+
+**ABI/Sherpa-ONNX compatibility, verified directly from the built artifact rather than assumed from the device model:** the RN debug APK's `lib/arm64-v8a/` directory was inspected directly (`unzip -l`) and confirmed to contain `libsherpa-onnx-jni.so`, `libsherpa-onnx-c-api.so`, `libsherpa-onnx-cxx-api.so`, `libsherpaonnx.so`, `libonnxruntime.so`, and `libonnxruntime4j_jni.so` for `arm64-v8a` — an exact match for this device's primary ABI. This is the concrete evidence Phase 2's native integration has a real, working target on this hardware.
+
+The RN app is currently uninstalled from this device (explicitly authorized, to free the shared applicationId for the native shell). It remains fully intact in its own project directory and buildable from the frozen baseline at any time — nothing about the RN source, the `pre-kotlin-migration` tag, or `main` changed.
 
 ### Known issues (Phase 1)
 
-1. **No physical device connected** — carried over from Phase 0; blocks the "install on physical device" exit criterion specifically.
+1. ~~No physical device connected~~ — **RESOLVED.** Device connected, ADB driver issue diagnosed and resolved (user enabled USB debugging; no driver install needed), native shell installed/launched/screenshotted successfully.
 2. **AndroidX/Compose dependencies pinned below latest** due to the compileSdk 36/AGP 8.12.0 ceiling on this machine (see above) — not a defect, but flagged so a future toolchain upgrade (SDK platform 37 + AGP 9.1.0+) is a deliberate, tracked decision rather than something that "just happened."
 3. **`kotlinOptions` deprecation warning** in `app/build.gradle.kts` — cosmetic, non-blocking.
+4. **The RN app is no longer installed on this specific test device** (explicitly authorized uninstall, to free `com.itantra.app` for the native shell). Anyone needing to test the RN baseline on *this* device again will need to reinstall from `android/app/build/outputs/apk/debug/app-debug.apk` (and will then hit the same signature conflict in reverse if the native shell is installed at that time).
 
 ### Regression notes
 
@@ -178,7 +188,7 @@ One incidental finding during this phase: `MIGRATION_AUDIT.md`'s working-tree co
 | Phase | Status | Build | Device test | Known issues |
 |---|---|---|---|---|
 | 0 — Freeze current system | **COMPLETE** | RN native build: **PASS** (fixed a `local.properties` path-escaping bug introduced during this phase); TS typecheck: PASS | NOT TESTED (no device connected) | No device connected |
-| 1 — Native Kotlin shell | **COMPLETE** | PASS (12.4 MB debug APK) | NOT TESTED (no device connected) | No device connected; deps pinned below latest (documented, not a defect) |
+| 1 — Native Kotlin shell | **COMPLETE** | PASS (12.4 MB debug APK) | **PASS** (vivo V2055, Android 13/SDK 33, arm64-v8a — launched, rendered, no crash) | Deps pinned below latest (documented, not a defect); RN app uninstalled from this test device to free the shared applicationId |
 | 2 — Direct Sherpa-ONNX integration | Not started | — | — | — |
 | 3 — Native audio capture | Not started | — | — | — |
 | 4 — VAD + sentence segmentation | Not started | — | — | — |
