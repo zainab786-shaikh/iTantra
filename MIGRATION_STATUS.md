@@ -1286,6 +1286,83 @@ No STT/VAD/segmentation/packet/MockTransport/general-UI/real-networking code tou
 
 ---
 
+## Post-migration fix — Odia STT crash, Marathi/Kannada TTS "not working"
+
+**Status:** COMPLETE, verified on physical device (all 10 languages)
+**Date:** 2026-09-07
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### Context
+
+Follow-up report of 3 problems found using the shipped app: Marathi TTS silent, Kannada TTS silent, and selecting Odia as the decode language crashing the whole app. Scoped as a targeted bug-fix, not a new phase — no architecture, mapping, or model changes unless investigation proved the existing ones wrong.
+
+### Root cause 1 — Odia crash
+
+**Category D (model loader fails) — but as a native, unrecoverable abort, not a catchable exception.** Reproduced on-device with a full logcat capture (see stack trace below): selecting Odia calls `TransmitterViewModel.setLanguage()` → `SttEngineProvider.prepare("or-IN")` → `SherpaSttBackend.load()` → `SttEngine.load()` → `com.k2fsa.sherpa.onnx.OfflineRecognizer(config)`. That constructor's native code (`offline-nemo-enc-dec-ctc-model.cc:Init:113`) logged `'vocab_size' does not exist in the metadata` and then called a fatal native abort (`FORTIFY: pthread_mutex_lock called on a destroyed mutex`, `SIGABRT`), killing the entire process. This is not a Java exception — `SttEngineProvider.prepare()`'s existing `try/catch (e: Exception)` cannot catch a native `abort()`, no matter how it's structured.
+
+The underlying model file itself is at fault: Odia's STT model (`OpenVoiceOS/ai4bharat-indicconformer-or-onnx`'s `model.int8.onnx`, downloaded via the STT download fix in the previous session) lacks the `vocab_size` ONNX metadata key sherpa-onnx's native nemo_ctc loader requires. This is the same URL/config the pre-migration RN app used (confirmed below) — the defect is in the upstream model export, not something the migration introduced, and was never caught before because Odia's STT model had never actually been downloaded-and-loaded until this session.
+
+**Diagnostic distinction:** this is model-loader-stage (D), specifically a native-layer fault the JVM cannot intercept after the fact — the only fix is to validate the model *before* handing it to that constructor.
+
+### Root cause 2 — Marathi/Kannada TTS "not working"
+
+**Category A (model missing) — not a code defect.** Both voices had been intentionally removed from this exact test device during the previous session's TTS-install-button verification work (to exercise the "not installed" UI state) and were never reinstalled afterward. `adb shell run-as com.itantra.app ls files/itantra-tts-models/` confirmed `mms-mar` and `mms-kan` were absent. Reinstalling each through the exact same, unmodified `TtsManager.installVoice()` → `TtsModelManager.install()` code already verified in the previous session's fix produced a complete `model.onnx` + `tokens.txt` for both, and `speakText()` then synthesized and played back each with `error=null` — confirming there is no synthesis-stage or playback-stage defect for either language; the previously-reported "not working" state was this test device's leftover data, not a bug.
+
+### RN source behavior
+
+`src/config/models.ts`'s `INDIC_CONFORMER_ODIA` descriptor (checked via `git show pre-kotlin-migration:src/config/models.ts`) uses `modelType: 'nemo_ctc'` and the identical `OpenVoiceOS/ai4bharat-indicconformer-or-onnx` URLs the Kotlin port already has — the mapping was not wrong, and RN would have hit the same underlying model defect had it ever loaded this exact model (the RN app's own STT install flow was proven working only for 4 languages in the prior session; Odia was never actually downloaded-and-loaded on the RN side either). No RN-side workaround for this specific defect exists to port — this is a new defensive check, not a restored one.
+
+### Kotlin files changed
+
+- **`stt/SttEngine.kt`** — added a pre-load validation, `hasVocabSizeMetadata(modelFile: File): Boolean`, called from `load()` right after the existing file-existence checks and before constructing `OfflineRecognizer`. Two implementations were tried:
+  1. First attempt: open the model via `ai.onnxruntime.OrtSession` (already a bundled dependency) and read `session.metadata.customMetadata`. Rejected — on-device this took over 3 minutes without completing for a 137 MB model (a full graph/session build, not a metadata-only read), which is worse than the crash it was meant to prevent.
+  2. Final approach: a streaming byte-scan of the raw model file for the literal ASCII bytes `"vocab_size"` (ONNX `metadata_props` keys are stored as literal UTF-8 bytes in the file's protobuf encoding, so this proves presence/absence without parsing the graph or allocating tensors). Reads in 1 MiB chunks with a small overlap for cross-chunk matches. Measured on-device at **676ms** for the 137 MB Odia model — confirmed the key is genuinely absent, matching the crash log exactly.
+- No other file changed for the Odia fix — `SttEngineProvider.prepare()`'s existing `try/catch` → `unsupported.add(languageCode)` → placeholder-fallback path already does the right thing once `load()` throws a normal exception instead of aborting.
+- **No files changed** for the Marathi/Kannada fix — confirmed to be a device-data issue, not a code defect, so nothing needed changing.
+
+### Model paths/files verified (this device, after the fix)
+
+| Language | STT dir | STT files | TTS dir | TTS files |
+|---|---|---|---|---|
+| Odia | `itantra-models/indicconformer-or/` | `model.int8.onnx` (137,677,313 B), `tokens.txt` (2,757 B) — **missing `vocab_size` metadata, confirmed** | `itantra-tts-models/mms-ory/` | `model.onnx` (114,046,136 B), `tokens.txt` (495 B) — synthesizes correctly |
+| Marathi | `itantra-models/indicconformer-mr/` | present (from prior session) | `itantra-tts-models/mms-mar/` | reinstalled this session: `model.onnx` (114,043,908 B), `tokens.txt` (490 B) |
+| Kannada | `itantra-models/indicconformer-kn/` | present (from prior session) | `itantra-tts-models/mms-kan/` | reinstalled this session: `model.onnx` (114,045,444 B), `tokens.txt` (487 B) |
+
+### Backend selected for each
+
+Unchanged from `config/TtsModels.kt` / `config/SttModels.kt` — Odia/Marathi/Kannada TTS are all MMS-VITS; all STT models (including Odia) are sherpa-onnx nemo_ctc. No mapping changes.
+
+### Device test results (vivo V2055)
+
+**STT — Odia:** selecting the Odia decode-language chip no longer crashes. `SttEngineProvider` correctly falls back to the placeholder backend (same as any other unavailable model), `ps` confirms the process stays alive throughout, and the UI shows a normal "READY TO TRANSCRIBE" state — verified on a fresh process launch (no prior app state) and reproduced identically on the final, cleaned build before commit.
+
+**TTS — all 10 languages**, tested via `TtsManager.speakText()` (the same method `ReceiverScreen.kt`'s real UI calls) after confirming/restoring each voice's on-disk presence:
+
+| Language | Result |
+|---|---|
+| English | `phase=speaking`, `error=null` |
+| Hindi | `phase=speaking`, `error=null` |
+| Marathi | `phase=speaking`, `error=null` (also reproduced via a full install→speak cycle) |
+| Gujarati | `phase=speaking`, `error=null` |
+| Kannada | `phase=speaking`, `error=null` (also reproduced via a full install→speak cycle) |
+| Tamil | `phase=speaking`, `error=null` |
+| Telugu | `phase=speaking`, `error=null` |
+| Odia | `phase=speaking`, `error=null` (TTS side — separate from the STT crash above) |
+| Bengali | `phase=speaking`, `error=null` |
+| Malayalam | `phase=speaking`, `error=null` |
+
+No crash on any language. English confirmed as the regression check.
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** on the final, cleaned build (temporary diagnostic probes removed).
+
+### Regression notes
+
+STT decode/segmentation/VAD, TTS queue/priority/critical-interrupt/audio-focus logic, packet layer, and MockTransport are unchanged. No new models, no mapping changes (the Odia model source is identical to the RN app's own config). The only behavioral change is that a model whose ONNX file is missing `vocab_size` metadata now fails the same clean, catchable way a missing directory already did, instead of crashing the process. Two temporary diagnostic probes (one for the Odia crash/log capture, one for the Marathi/Kannada/10-language TTS sweep) were used and fully removed — along with their brief `MainActivity.kt` wiring — before this fix was committed. `MIGRATION_AUDIT.md` showed the same recurring unexplained-whitespace anomaly noted in Phases 0/1/12 and was restored before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
