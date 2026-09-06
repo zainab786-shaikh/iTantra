@@ -386,6 +386,89 @@ No RN application source touched. No networking, new models, or optimization add
 
 ---
 
+## Phase 6 — Packet Layer
+
+**Status:** COMPLETE, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was built
+
+Direct port of `src/core/types.ts` (packet shape), `src/core/packet/priority.ts` (keyword-based priority classification), `src/core/packet/packetFactory.ts` (packet construction), and `src/core/device/deviceId.ts` (Android sender-ID derivation) — no Bluetooth/Wi-Fi/BLE/sockets/WebRTC, no real transport, no compression, exactly as scoped:
+
+- **`packet/ITantraPacket.kt`** — direct port of the `iTantraPacket` interface and `PacketPriority` union in `types.ts`. `PacketPriority` is a Kotlin `enum class` with a `value: String` field (`NORMAL`/`MEDIUM`/`HIGH`/`CRITICAL`) mirroring the TS string-literal union. `ITantraPacket` is a data class with the exact same seven fields, same names, same types: `id: String`, `senderId: String`, `timestamp: Long`, `language: String`, `text: String`, `priority: PacketPriority`, `isCompressed: Boolean`. Nothing added, nothing renamed.
+- **`packet/PriorityClassifier.kt`** — direct, verbatim port of `priority.ts`. The full `TRIGGERS` map is copied keyword-for-keyword: CRITICAL (`mayday, emergency, sos, critical, casualty, fire, attack` + the same Hindi/Tamil/Marathi/Bengali/Telugu/Kannada/Gujarati/Malayalam/Odia terms), HIGH (`urgent, immediate, backup, medic, injured, help, breach` + per-language equivalents), MEDIUM (`request, report, status, confirm, move, position` + per-language equivalents), NORMAL (empty list, the default). Same `ORDER` (CRITICAL → HIGH → MEDIUM, first match wins), same `classifyPriority(text): PacketPriority` (lowercase-then-substring-match), same `PRIORITY_COLORS` map (`NORMAL #B5B5B5`, `MEDIUM #72A9D8`, `HIGH #E5B85C`, `CRITICAL #E66B67`). No keyword added, removed, or reworded from the source.
+- **`packet/PacketFactory.kt`** — direct port of `packetFactory.ts`'s `buildPacket()`: generates a random `id` (`UUID.randomUUID()`, matching the source's `crypto.randomUUID()`-equivalent usage), stamps `timestamp = System.currentTimeMillis()`, defaults `priority` to `classifyPriority(text)` when not explicitly overridden, defaults `isCompressed = false` (never set to `true` anywhere in this migration, matching the instruction that this stays false until a real transport that actually compresses exists).
+- **`device/DeviceId.kt`** — direct port of `deviceId.ts`'s Android path (the source's iOS branch has no migration target). Reads `Settings.Secure.ANDROID_ID` via the `ContentResolver` — the same OS value `expo-application`'s `getAndroidId()` reads under the hood on Android — formats it as `ITX-<8-char-uppercase-alnum-tag>`, falls back to a random UUID-derived tag if `ANDROID_ID` is unavailable, and caches the result for the process lifetime (`@Synchronized`-equivalent via a simple nullable cache, since this is called from the UI thread only in this phase).
+- **`diagnostics/PacketProbe.kt`** — new, temporary (not product UI): a "BUILD SAMPLE PACKETS" button that retrieves the real device senderId and builds 5 sample packets (3 English, 2 Hindi) covering CRITICAL/HIGH/MEDIUM classification, displaying priority band, text, language, truncated id, and `isCompressed` for each.
+- `MainActivity.kt` — wired `PacketProbeSection()` into the diagnostic shell, after the Phase 5 STT pipeline probe.
+
+### RN source → Kotlin file mapping
+
+| RN source | Kotlin file |
+|---|---|
+| `src/core/types.ts` (`iTantraPacket`, `PacketPriority`) | `packet/ITantraPacket.kt` |
+| `src/core/packet/priority.ts` | `packet/PriorityClassifier.kt` |
+| `src/core/packet/packetFactory.ts` | `packet/PacketFactory.kt` |
+| `src/core/device/deviceId.ts` (Android path) | `device/DeviceId.kt` |
+| (none — new diagnostic) | `diagnostics/PacketProbe.kt` |
+
+### Behavior/parity verification
+
+Five sample packets built on-device, checked by hand against the exact ported keyword lists:
+
+| Input text | Language | Expected band (by keyword match) | Actual band |
+|---|---|---|---|
+| "hello there, position secure" | en-IN | MEDIUM (`position`) | **MEDIUM** |
+| "there is a fire, emergency" | en-IN | CRITICAL (`fire`, `emergency`) | **CRITICAL** |
+| "हमें तुरंत मदद चाहिए" | hi-IN | HIGH (`तुरंत`, `मदद`) | **HIGH** |
+| "स्थिति सुरक्षित है" | hi-IN | MEDIUM (`स्थिति`) | **MEDIUM** |
+| "confirm your status" | en-IN | MEDIUM (`confirm`, `status`) | **MEDIUM** |
+
+All 5 matched the expected classification exactly, with `isCompressed=false` on every packet and a distinct, well-formed UUID `id` per packet — no networking, compression, or new algorithm involved.
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a:
+- Build installed and launched cleanly (`adb install -r` → `Success`, `am start` → launched).
+- Scrolled to the "PHASE 6 · PACKET LAYER PROBE" section, tapped "BUILD SAMPLE PACKETS".
+- Output showed `senderId=ITX-98711904` — a real value derived from this device's actual `Settings.Secure.ANDROID_ID` via `DeviceId.kt`, not a hardcoded or fabricated string.
+- All 5 packets rendered with correct priority bands (table above), correct language tags, distinct ids, `isCompressed=false`.
+- No crash: app process remained stable through launch, scroll, tap, and result render.
+- Device screen locked once mid-session (charging/battery screen) exactly as in prior phases; per established practice I did not send an unlock gesture on the user's personal device and instead asked the user to unlock it, which they did before I continued.
+
+**NOT VERIFIED:** no automated/unit test suite was run against `PriorityClassifier.kt`'s full keyword list (all ~90 keywords across 9 languages) — only 5 representative samples were exercised on-device. The remaining keywords were verified by direct side-by-side text comparison against `priority.ts` while porting, not by executing each one.
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** (both before and after wiring `PacketProbeSection()` into `MainActivity.kt`; second build: 39 actionable tasks, 4 executed / 35 up-to-date, ~5s incremental).
+
+### Files changed
+
+New:
+- `android-native/app/src/main/java/com/itantra/app/packet/ITantraPacket.kt`
+- `android-native/app/src/main/java/com/itantra/app/packet/PriorityClassifier.kt`
+- `android-native/app/src/main/java/com/itantra/app/packet/PacketFactory.kt`
+- `android-native/app/src/main/java/com/itantra/app/device/DeviceId.kt`
+- `android-native/app/src/main/java/com/itantra/app/diagnostics/PacketProbe.kt`
+
+Modified:
+- `android-native/app/src/main/java/com/itantra/app/MainActivity.kt` (added `PacketProbeSection()` import and call)
+- `MIGRATION_STATUS.md` (this section)
+
+### Known issues/limitations (Phase 6)
+
+1. Only 5 representative samples were exercised on-device, not the full ~90-keyword list across all 9 languages — the remaining keywords were verified by direct text comparison against the TS source during porting, not by individual on-device execution.
+2. `DeviceId.kt`'s cache is a plain nullable var, not `@Synchronized` — acceptable in this phase since it is only ever called from the UI thread (diagnostic button `onClick`), but should be revisited if a future phase calls it from a background thread.
+3. Diagnostic UI (`PacketProbeSection`) is temporary scaffolding, same as Phases 2–5 — to be removed/relocated in the cleanup phase.
+4. No transport/MockTransport wiring yet — packets are built and displayed only; sending/receiving is Phase 7, not started.
+
+### Regression notes
+
+No RN application source touched. No Bluetooth/Wi-Fi/BLE/sockets/WebRTC/real transport added. No compression logic added (`isCompressed` stays `false` everywhere). No packet schema change — same seven fields, same names, same priority enum values. No new AI models, no VAD/STT/audio changes. `MIGRATION_AUDIT.md` confirmed untouched (`git diff --stat MIGRATION_AUDIT.md` empty) before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -396,7 +479,7 @@ No RN application source touched. No networking, new models, or optimization add
 | 3 — Native audio capture | **COMPLETE** | PASS | **PASS** — real permission grant, real AudioRecord capture (OS mic indicator, real RMS, 1783 frames), clean stop, no crash | ADB input-delivery quirk on this device (investigated, benign); AudioSource choice is a judgment call |
 | 4 — VAD + sentence segmentation | **COMPLETE** | PASS | **PASS** — real speaker-to-mic loopback produced a real 6272ms segment matching the reference clip, plus a forced flush segment on stop; 4 segments total, no crash | Initial ambient-noise transient is expected (not a bug); diagnostic UI temporary |
 | 5 — Complete STT pipeline | **COMPLETE** | PASS | **PASS** — full capture->VAD->segmenter->real STT->repair->filter chain verified with engine=SHERPA_ONNX active; empty segment correctly filtered; non-empty real transcript produced; no crash | Found+fixed a diagnostic-only bug (missing prepare() call, not in ported classes); transcript accuracy limited by speaker-to-mic loopback acoustics, not code |
-| 6 — Packet layer | Not started | — | — | — |
+| 6 — Packet layer | **COMPLETE** | PASS | **PASS** — real senderId (ITX-98711904) derived from device ANDROID_ID; 5 sample packets, all classified into correct priority bands per verbatim keyword lists; no crash | Only 5/~90 keywords exercised on-device (rest verified by text comparison); diagnostic UI temporary; no transport wiring yet (Phase 7) |
 | 7 — Transport abstraction | Not started | — | — | — |
 | 8 — Native TTS | Not started | — | — | — |
 | 9 — ViewModel/state architecture | Not started | — | — | — |
