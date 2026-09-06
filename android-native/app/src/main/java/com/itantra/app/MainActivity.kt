@@ -41,19 +41,16 @@ import com.itantra.app.viewmodel.AppViewModel
 private enum class Mode { TRANSMIT, RECEIVE }
 
 /**
- * Phase 10: the actual iTantra product UI, replacing the Phase 1-9
- * diagnostic shell. Direct port of App.tsx's root composition - one
- * AppViewModel (owning the shared MockTransport + both controllers, see
- * AppViewModel.kt) and a floating Transmit/Receive switcher, exactly
- * mirroring App.tsx's own `mode` state and `ModeSwitcher`. No Home/
- * Devices/History/Settings/dashboards were added - this is the same
- * two-screen product, just natively implemented.
+ * The actual iTantra product UI (Phase 10). Direct port of App.tsx's root
+ * composition - one AppViewModel (owning the shared MockTransport + both
+ * controllers, see AppViewModel.kt) and a floating Transmit/Receive
+ * switcher, exactly mirroring App.tsx's own `mode` state and
+ * `ModeSwitcher`. No Home/Devices/History/Settings/dashboards were added -
+ * this is the same two-screen product, just natively implemented.
  *
- * The temporary diagnostic probe sections from Phases 2-9 are no longer
- * rendered here (per this phase's explicit instruction that diagnostic UI
- * must not become part of the final product); their source files are not
- * yet deleted, since some downstream verification/parity phases may still
- * reference them - final removal is Phase 13's job.
+ * The temporary diagnostic probe sections used during Phases 2-9 to
+ * verify each ported component on-device have been removed (Phase 13
+ * cleanup) now that the real product UI exercises the same code paths.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

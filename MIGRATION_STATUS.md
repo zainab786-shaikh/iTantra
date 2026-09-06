@@ -951,6 +951,64 @@ Four genuine regressions found and fixed, per this phase's actual purpose. No ne
 
 ---
 
+## Phase 13 — Migration Cleanup
+
+**Status:** COMPLETE, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was done
+
+Removed the entire `diagnostics/` package — the temporary on-device probe screens used throughout Phases 2-9 to verify each newly-ported component in isolation before the real product UI (Phase 10) existed to exercise the same code paths. Confirmed via `grep -rl "diagnostics\."` across the whole `android-native` source tree that no file outside the package itself referenced it before deleting, so this is a pure subtraction with no dangling references:
+
+- `diagnostics/AudioCaptureProbe.kt` (Phase 3)
+- `diagnostics/SttProbe.kt` (Phase 2)
+- `diagnostics/VadSegmenterProbe.kt` (Phase 4)
+- `diagnostics/SttPipelineProbe.kt` (Phase 5)
+- `diagnostics/PacketProbe.kt` (Phase 6)
+- `diagnostics/TransportProbe.kt` (Phase 7)
+- `diagnostics/TtsProbe.kt` (Phase 8)
+- `diagnostics/ViewModelProbe.kt` (Phase 9)
+
+`MainActivity.kt`'s doc comment was updated to drop the now-stale "diagnostic sections are not yet deleted, pending Phase 13" note, replaced with a short historical note that they were removed this phase.
+
+Nothing else qualified for removal: `TransmitterViewModel`/`ReceiverViewModel`/`AppViewModel`, all `ui/` screens and components, and every `config`/`core`/`audio`/`vad`/`stt`/`tts`/`packet`/`transport`/`device` file are all load-bearing production code the shipped app actually uses — none of it was migration-only scaffolding.
+
+### RN source → Kotlin file mapping
+
+Not applicable — this phase removes migration-only Kotlin scaffolding that never had an RN counterpart to begin with (it was written during this migration purely to verify ported behavior on-device).
+
+### Behavior/parity verification
+
+No behavior changed. This is a pure code-removal phase; the app's functional surface (both screens, both ViewModels, every ported subsystem) is bit-for-bit the same as at the end of Phase 12.
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a: reinstalled the rebuilt APK, launched, and confirmed both screens still render and behave identically to before the cleanup — Transmit screen (`STANDBY`, `READY TO TRANSCRIBE`, language selector, response pause, all present and correct) and Receive screen (`READY`, empty received-message state, footer text, all present and correct) — with no crash (`pidof` confirmed a stable process throughout).
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** (39 actionable tasks, ~15s) — confirming no other file depended on any removed diagnostic class.
+
+### Files changed
+
+Deleted:
+- `android-native/app/src/main/java/com/itantra/app/diagnostics/` (entire package, 8 files)
+
+Modified:
+- `android-native/app/src/main/java/com/itantra/app/MainActivity.kt` (doc comment update only, no behavior change)
+- `MIGRATION_STATUS.md` (this section)
+
+### Known issues/limitations (Phase 13)
+
+None.
+
+### Regression notes
+
+No RN application source touched. No behavior changed - verified via build success and on-device re-check of both screens. `MIGRATION_AUDIT.md` confirmed untouched before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -968,7 +1026,5 @@ Four genuine regressions found and fixed, per this phase's actual purpose. No ne
 | 10 — Actual iTantra UI | **COMPLETE** | PASS (after fixing an animateFloat API mistake + a status-bar inset bug) | **PASS** — real end-to-end proof: 3 genuine ambient-speech utterances captured via the real PTT button, correctly transcribed/classified (NORMAL/HIGH/CRITICAL), sent, received, and spoken, all through the actual product UI; mode switching preserves state; no crash | CriticalAlertBanner not visually captured mid-display (code-verified only); diagnostic probe files still present but unreferenced (Phase 13 removes them) |
 | 11 — Full native end-to-end | **COMPLETE** | N/A (no code changed) | **PASS** — verification-only phase confirming Phase 9/10's wiring drives the complete transmit+receive chain through the real UI; correctly silent when no real speech present | Live re-capture of critical-interrupt-during-playback via the product UI not reproduced this phase (unchanged code already proven in Phase 8) |
 | 12 — RN vs Kotlin parity | **COMPLETE** | PASS | **PASS** — 4 genuine regressions found and fixed (PTT permission flow, mic-unavailable message text, timestamp locale format, a regex typo); PriorityClassifier/TtsQueue/TtsManager re-verified with zero differences; fix confirmed live on-device | Denial path not separately re-tested; single-gesture permission flow can't be byte-for-byte identical on Android |
-| 13 — Performance optimization | Not started | — | — | — |
-| 14 — Real device-to-device transport | Not started | — | — | — |
-| 15 — Remove React Native | Not started | — | — | — |
-| 16 — Final cleanup | Not started | — | — | — |
+| 13 — Migration cleanup | **COMPLETE** | PASS | **PASS** — removed the entire `diagnostics/` package (8 files, no dangling references); both screens re-verified identical post-cleanup; no crash | None |
+| 14 — Remove React Native | Not started | — | — | — |
