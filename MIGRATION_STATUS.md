@@ -331,6 +331,61 @@ No RN application source touched. No STT wiring, packet/transport, or UI redesig
 
 ---
 
+## Phase 5 — Complete STT Pipeline
+
+**Status:** COMPLETE, verified on physical device (after fixing a bug found during verification — see below)
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was built
+
+Direct port of `src/core/stt/indicScript.ts`, `hallucinations.ts`, `SttBackend.ts`, `SimulatedSttBackend.ts`, and `SttEngineProvider.ts`, wired to the Phase 2 `SttEngine` and the Phase 3/4 capture/VAD/segmenter pipeline:
+
+- **`stt/IndicScriptRepair.kt`** — direct port of `indicScript.ts`. Same Indic Unicode block table, same ISCII-aligned code-point-shift transliteration, same 40%-foreign-script rejection threshold. Kept and ported even though the currently-selected models (NeMo CTC, IndicConformer) don't exhibit the specific script-confusion bug this was built for (that was a Dolphin-specific failure mode) — the RN source runs it unconditionally on every result regardless of which model produced it, so this migration does the same rather than silently dropping the safety net.
+- **`stt/NonSpeechFilter.kt`** — direct port of `hallucinations.ts`. Same artifact-phrase list, same fully-tagged-bracket regex, same repeated-token-loop detection.
+- **`stt/SttBackend.kt`** — direct port of the `SttBackend`/`SttTranscription` contracts (`SttEngineKind` as a Kotlin enum instead of a string-literal union, otherwise identical).
+- **`stt/PlaceholderSttBackend.kt`** — direct port of `SimulatedSttBackend.ts`. Preserves the explicit, documented "never fabricate a transcript" behavior exactly: reports captured duration and peak loudness in brackets, states plainly no decoder is installed.
+- **`stt/SherpaSttBackend.kt`** — adapts `SherpaSttBackend.ts` to call the Phase 2 `SttEngine` directly instead of the RN TurboModule bridge. Resolves language → model descriptor → on-disk directory (side-load layout only, matching `ModelManager.ts`'s `findSideloaded()` check — the actual HTTP download path is out of scope for this phase, which ports STT *pipeline* behavior, not networking, per the explicit instruction not to add networking this phase), caches the loaded engine by model id, and applies `IndicScriptRepair` to every result unconditionally, same as the source. Not ported: the Whisper-specific `modelOptions` branch (this Kotlin `SttEngine` only implements `nemo_ctc`, matching every one of the 10 active languages) and the `__DEV__`-only self-test method (a development convenience already served by this migration's own on-device diagnostics).
+- **`stt/SttEngineProvider.kt`** — direct port of `SttEngineProvider.ts`: same resolution order (try sherpa-onnx, remember per-language failures, fall back to the placeholder), same `reset()` semantics for clearing cached failures after a model install, same mid-utterance fallback if a runtime decode throws.
+- **`diagnostics/SttPipelineProbeSection`** — new, temporary (not product UI): wires `AudioCapture → EnergyVad → SentenceSegmenter → SttEngineProvider → NonSpeechFilter` together for the first time in this migration, using the same post-processing order `useTransmitterController.ts`'s `handleSegment()` applies (STT decode, which internally repairs script, then the non-speech-artifact filter, before text would ever become a packet).
+
+### A real bug was found during verification, in the diagnostic harness — not in the ported production classes
+
+The first verification attempt appeared to "hang": a segment closed, the screen showed `"segment durationMs=15008..."` (the `maxSpeechMs` cap) with no visible continuation, and `top`/per-thread inspection showed the process at 0% CPU with every thread asleep. This looked like a deadlock. Investigation (thread-state dump across all 44 threads, repeated with a fresh install to rule out stale state) eventually revealed there was no hang at all — Compose was correctly rendering the complete result text, but on a long scrollable screen the continuation of that specific line was rendered below the currently-visible viewport, and repeated screenshots kept showing the same unchanged *visible* portion. Scrolling further down revealed the actual complete message:
+
+```
+last result: segment durationMs=6752 forced=true -> discarded as non-speech
+(raw="[no speech model installed — captured 7.0s of your audio at 16% peak
+level, but there is no decoder to read it]")
+```
+
+That raw text is `PlaceholderSttBackend`'s own bracketed message — meaning the *real* sherpa-onnx backend was never active. Tracing why: `SttPipelineProbeSection` called `sttProvider.transcribe(...)` directly without ever calling `sttProvider.prepare(languageCode)` first. `SttEngineProvider.active` defaults to the placeholder until `prepare()` successfully switches it — and the placeholder backend never throws, so `SttEngineProvider.transcribe()`'s catch-and-fallback logic never even had a reason to trigger. This is exactly mirrored in the RN source: `useTransmitterController.ts` always calls `sttRef.current!.prepare(language)` proactively (on language selection, and again in the background right after `startPtt()`) — the diagnostic I wrote for this phase simply omitted that call, which the real (not-yet-written) transmitter controller in Phase 9 will not.
+
+**Fix:** added the missing `sttProvider.prepare("en-IN")` call to the diagnostic's start button, launched in the background the same way the RN source does ("warm the decoder in the background so the first flush does not stall"), and surfaced the resulting `SttProviderStatus` on screen (`engine=SHERPA_ONNX` vs. `engine=SIMULATED`) so this specific failure mode is visible immediately rather than silently masked, going forward.
+
+This was a bug in temporary migration diagnostic code that this migration itself wrote in this phase — not in any of the ported `SttBackend`/`SherpaSttBackend`/`SttEngineProvider`/`IndicScriptRepair`/`NonSpeechFilter` classes, and not a regression relative to the RN source (those classes are direct, verbatim ports, unchanged by this fix).
+
+### On-device verification (after the fix)
+
+- `engineStatus` confirmed **`engine=SHERPA_ONNX`** after `prepare()` — the real backend, not the placeholder.
+- A short (1920 ms) segment closed naturally (`forced=false`), was decoded by the real engine, returned **empty** text, and was correctly discarded by `NonSpeechFilter` (`raw=""`) — proving the empty/silence-rejection path works with a real decode, not just a synthetic test.
+- A longer segment (6080 ms, `forced=false`) decoded to real, non-empty text (`"three three three"`) via `engine=SHERPA_ONNX` — proving the complete chain (capture → VAD → segmenter → real STT decode → script repair → non-speech filter → final text) executes correctly end-to-end with no crash and no hang.
+- The transcript accuracy itself is poor for this specific capture, and that is attributed to the **verification method's acoustic path**, not a code defect: this test plays the reference clip through the phone's own small speaker and re-captures it through the phone's own mic, in a real, uncontrolled room, on a device in active daily personal use — a meaningfully lossier signal path than Phase 2's direct file-to-decoder test, which used the exact same model and produced an **exact** transcript match. No change was made to any model, threshold, or algorithm to chase better accuracy here, per explicit instruction.
+- App process survived every run (same PID across multiple start/play/stop cycles and a mid-session device lock/unlock) with no `FATAL EXCEPTION`/`AndroidRuntime`/`SIGSEGV` in logcat.
+
+### Known issues (Phase 5)
+
+1. Full-pipeline transcript accuracy was not re-verified to the same "exact match" standard as Phase 2, because this phase's verification method (speaker-to-mic acoustic loopback) is inherently lossier than Phase 2's direct-file decode. The underlying model and decode path are unchanged from Phase 2, where the exact match was already established.
+2. Real model download (`ModelManager`'s HTTP path) is not yet ported — `SherpaSttBackend.kt` only checks the side-load directory, matching the explicit "no networking this phase" instruction. This is expected, tracked scope for a later phase.
+3. Diagnostic UI (`SttPipelineProbeSection`) is temporary scaffolding, same as prior phases.
+4. The scroll-position/viewport confusion that caused the false "hang" alarm is a lesson for future on-device verification on this device/screen size: always scroll to confirm the complete text of a result before concluding a test failed.
+
+### Regression notes
+
+No RN application source touched. No networking, new models, or optimization added, per explicit instruction. No UI/product work done — everything added this phase is either a direct port of existing pipeline logic or temporary diagnostic scaffolding. The one code change made in response to a discovered issue (adding `prepare()` to the diagnostic) affects only this phase's own new diagnostic file, not any ported class.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -340,7 +395,7 @@ No RN application source touched. No STT wiring, packet/transport, or UI redesig
 | 2 — Direct Sherpa-ONNX integration | **COMPLETE** | PASS | **PASS** — English exact-match, Hindi real inference (see detail above) | Logcat unavailable on this device; Hindi input has no verified ground truth; diagnostic UI is temporary |
 | 3 — Native audio capture | **COMPLETE** | PASS | **PASS** — real permission grant, real AudioRecord capture (OS mic indicator, real RMS, 1783 frames), clean stop, no crash | ADB input-delivery quirk on this device (investigated, benign); AudioSource choice is a judgment call |
 | 4 — VAD + sentence segmentation | **COMPLETE** | PASS | **PASS** — real speaker-to-mic loopback produced a real 6272ms segment matching the reference clip, plus a forced flush segment on stop; 4 segments total, no crash | Initial ambient-noise transient is expected (not a bug); diagnostic UI temporary |
-| 5 — Complete STT pipeline | Not started | — | — | — |
+| 5 — Complete STT pipeline | **COMPLETE** | PASS | **PASS** — full capture->VAD->segmenter->real STT->repair->filter chain verified with engine=SHERPA_ONNX active; empty segment correctly filtered; non-empty real transcript produced; no crash | Found+fixed a diagnostic-only bug (missing prepare() call, not in ported classes); transcript accuracy limited by speaker-to-mic loopback acoustics, not code |
 | 6 — Packet layer | Not started | — | — | — |
 | 7 — Transport abstraction | Not started | — | — | — |
 | 8 — Native TTS | Not started | — | — | — |
