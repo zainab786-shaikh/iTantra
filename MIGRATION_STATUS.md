@@ -296,6 +296,41 @@ No RN application source touched. No VAD, segmentation, STT wiring, or UI redesi
 
 ---
 
+## Phase 4 — VAD + Sentence Segmentation
+
+**Status:** COMPLETE, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was built
+
+Direct port of `src/core/vad/EnergyVad.ts` and `src/core/vad/SentenceSegmenter.ts`, plus the relevant part of `src/config/vadConfig.ts`:
+
+- **`config/VadConfig.kt`** — direct port of `vadConfig.ts`: `VadConfig` data class, `DEFAULT_VAD_CONFIG` (frameSize 512, speechThreshold 0.5, silenceThreshold 0.35, endOfSpeechSilenceMs 750, minSpeechMs 220, maxSpeechMs 15000, preSpeechPaddingMs 240 — every value copied verbatim, none re-tuned), `PAUSE_PRESETS` (600/750/1000 ms), and the canonical `SAMPLE_RATE = 16000`. This is now the single source of truth for `SAMPLE_RATE` in the Kotlin project — Phase 3 had temporarily defined its own local copy in the `audio` package before this config package existed; that duplicate was removed and `AudioCaptureService.kt`/`AudioCapture.kt` now import from `config` instead, matching the TS source's own single-definition structure.
+- **`vad/VadBackend.kt`** — direct port of the `VadBackend` interface. `SileroVad.ts` was **not** ported: it is opt-in, requires a separate ONNX model and peer dependency, and — verified directly, not assumed — is never constructed or wired into any controller in the RN app (the only real, active VAD backend the shipped app uses is `EnergyVad`). Same treatment as Dolphin/Whisper in Phase 2.
+- **`vad/EnergyVad.kt`** — direct port, every constant copied verbatim: `SNR_MARGIN = 2.4`, `ABSOLUTE_FLOOR = 0.0045`, `ZCR_CEILING = 0.42`, `SETTLE_FRAMES = 12`, initial `noiseFloor = 0.005`. Same adaptive noise-floor/soft-knee-sigmoid/ZCR-attenuation algorithm.
+- **`vad/SentenceSegmenter.kt`** — direct port: same hysteresis state machine, same pre-speech padding ring buffer, same `MIN_VOICED_RATIO = 0.35` gate, same max-duration force-flush. `AudioSegment` data class ported from the TS interface of the same name.
+- **`diagnostics/VadSegmenterProbeSection`** — temporary diagnostic (not product UI), wiring the real `AudioCapture` (Phase 3) into the real `EnergyVad`/`SentenceSegmenter` exactly as the future transmitter controller will. Includes a "PLAY REFERENCE CLIP (0.wav)" button using `android.media.MediaPlayer` to play the English model's bundled reference clip (already on-device from Phase 2) through the speaker while capture is running — real sound leaves the speaker and real air-pressure waves re-enter through the microphone, so the VAD/segmenter is exercised by genuine acoustic speech, not an injected/fabricated signal.
+
+### On-device verification
+
+- Capture started: real mic-in-use indicator present (same OS-level signal used in Phase 3); an initial `speaking=true` transient occurred from ambient room noise before any deliberate audio was played — expected behavior of the exact ported algorithm (the noise floor starts at a low default and only "settles" after `SETTLE_FRAMES` = 12 frames / ~384 ms), not a bug introduced during migration.
+- Reference clip played through the speaker: segmenter correctly reported a completed segment of **durationMs=6272, forced=false** — closely matching the clip's actual ~6.6 s length (212,044-byte 16 kHz mono PCM-16 file), trimmed for leading/trailing silence and closed naturally by the end-of-speech pause detector, not a forced cutoff.
+- Manual stop (`flush()` then `capture.stop()`, mirroring the RN controller's `stopPtt()` ordering) correctly produced a final **forced=true** segment for whatever was still in flight, rather than silently discarding it.
+- Total: **4 real segments** captured and reported across the session; app process survived the entire test (same PID throughout, from before device lock/unlock through to final stop) with no `FATAL EXCEPTION`/`AndroidRuntime`/`SIGSEGV` in logcat.
+
+### Known issues (Phase 4)
+
+1. The initial ambient-noise `speaking=true` transient (noted above) is expected given the exact ported constants and is not something to "fix" — changing it would mean deviating from the source algorithm, which this migration must not do.
+2. Diagnostic UI (`VadSegmenterProbeSection`) is temporary, same as Phases 2/3 — to be removed/relocated in Phase 16.
+3. Verification used one real audio sample (English reference clip via speaker-to-mic loopback) rather than a full stress-test matrix (multiple pause lengths, rapid utterances, maximum-duration force-flush) — Phase 4's scope was proving the ported logic runs correctly on real hardware with real audio, not an exhaustive audio QA pass; per-language STT wiring (Phase 5) will exercise this pipeline further.
+
+### Regression notes
+
+No RN application source touched. No STT wiring, packet/transport, or UI redesign work done — VAD and segmentation only, per explicit scope. No thresholds, algorithms, or constants changed from the source. `SileroVad` intentionally not ported (dead code in the source itself).
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -304,7 +339,7 @@ No RN application source touched. No VAD, segmentation, STT wiring, or UI redesi
 | 1 — Native Kotlin shell | **COMPLETE** | PASS (12.4 MB debug APK) | **PASS** (vivo V2055, Android 13/SDK 33, arm64-v8a — launched, rendered, no crash) | Deps pinned below latest (documented, not a defect); RN app uninstalled from this test device to free the shared applicationId |
 | 2 — Direct Sherpa-ONNX integration | **COMPLETE** | PASS | **PASS** — English exact-match, Hindi real inference (see detail above) | Logcat unavailable on this device; Hindi input has no verified ground truth; diagnostic UI is temporary |
 | 3 — Native audio capture | **COMPLETE** | PASS | **PASS** — real permission grant, real AudioRecord capture (OS mic indicator, real RMS, 1783 frames), clean stop, no crash | ADB input-delivery quirk on this device (investigated, benign); AudioSource choice is a judgment call |
-| 4 — VAD + sentence segmentation | Not started | — | — | — |
+| 4 — VAD + sentence segmentation | **COMPLETE** | PASS | **PASS** — real speaker-to-mic loopback produced a real 6272ms segment matching the reference clip, plus a forced flush segment on stop; 4 segments total, no crash | Initial ambient-noise transient is expected (not a bug); diagnostic UI temporary |
 | 5 — Complete STT pipeline | Not started | — | — | — |
 | 6 — Packet layer | Not started | — | — | — |
 | 7 — Transport abstraction | Not started | — | — | — |

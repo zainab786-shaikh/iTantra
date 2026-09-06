@@ -1,10 +1,6 @@
 package com.itantra.app.audio
 
-/** Matches SAMPLE_RATE in src/config/vadConfig.ts. */
-const val SAMPLE_RATE = 16_000
-
-/** Matches DEFAULT_VAD_CONFIG.frameSize in src/config/vadConfig.ts (512 samples @ 16 kHz = 32 ms). */
-const val DEFAULT_FRAME_SIZE = 512
+import com.itantra.app.config.SAMPLE_RATE
 
 /**
  * Direct port of src/core/audio/AudioCaptureService.ts.

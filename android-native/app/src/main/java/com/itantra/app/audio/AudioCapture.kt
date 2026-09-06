@@ -7,6 +7,8 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.core.content.ContextCompat
+import com.itantra.app.config.DEFAULT_VAD_CONFIG
+import com.itantra.app.config.SAMPLE_RATE
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -30,7 +32,7 @@ import kotlin.concurrent.thread
  * for — see MIGRATION_AUDIT.md §C.
  */
 class AudioCapture(
-    private val frameSize: Int = DEFAULT_FRAME_SIZE,
+    private val frameSize: Int = DEFAULT_VAD_CONFIG.frameSize,
     private val onFrame: (AudioFrame) -> Unit,
 ) {
     private var audioRecord: AudioRecord? = null

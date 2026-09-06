@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.itantra.app.audio.AudioCapture
 import com.itantra.app.diagnostics.AudioCaptureProbeSection
 import com.itantra.app.diagnostics.SttProbeSection
+import com.itantra.app.diagnostics.VadSegmenterProbeSection
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppSizing
 import com.itantra.app.ui.theme.ITantraTheme
@@ -94,6 +95,10 @@ private fun ShellScreen(
             )
             SttProbeSection()
             AudioCaptureProbeSection(
+                hasPermission = audioPermissionGranted,
+                onRequestPermission = onRequestAudioPermission,
+            )
+            VadSegmenterProbeSection(
                 hasPermission = audioPermissionGranted,
                 onRequestPermission = onRequestAudioPermission,
             )
