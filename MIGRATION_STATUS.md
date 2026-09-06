@@ -547,6 +547,96 @@ No RN application source touched. No Bluetooth/Wi-Fi/BLE/sockets/WebRTC/real tra
 
 ---
 
+## Phase 8 — Native TTS
+
+**Status:** COMPLETE, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was built
+
+Direct port of `src/config/ttsModelTypes.ts`, `src/config/ttsModels.ts`, `src/core/tts/types.ts`, `src/core/tts/TtsQueue.ts`, `src/core/tts/TtsModelManager.ts`, `src/core/tts/TtsEngine.ts`, and `src/core/tts/TtsManager.ts`. Same model registry, same queue/priority/interruption semantics, same audio-focus intent, no new models, no networking, no volume/optimization changes:
+
+- **`config/TtsModels.kt`** — direct port of the TTS voice registry: `PIPER_ENGLISH`/`PIPER_HINDI`/`PIPER_MALAYALAM` (Piper, `vits`, archive source) and `MMS_GUJARATI`/`MMS_MARATHI`/`MMS_KANNADA`/`MMS_TAMIL`/`MMS_TELUGU`/`MMS_ODIA`/`MMS_BENGALI` (MMS-VITS, loose-files source), same ids/labels/approxMb/language mappings, same `TTS_MODELS` order, same `resolveTtsModelForLanguage()` first-match semantics. `TTSModelType` only represents `vits` as a real value — the only type any registry entry uses (same dead-code-omission treatment Phase 2 gave Dolphin/Whisper).
+- **`tts/TtsTypes.kt`** — direct port of `types.ts`: `TtsVoiceStatus` sealed class (`NotInstalled`/`Downloading`/`Installed`/`Error`), `TtsPlaybackPhase` enum (`IDLE`/`LOADING_VOICE`/`SPEAKING`/`ERROR`), `TtsPlaybackState` and `SpeakRequest` data classes, `INITIAL_TTS_PLAYBACK_STATE`.
+- **`tts/TtsQueue.kt`** — direct, verbatim port of `TtsQueue.ts`: separate `normal`/`critical` deques, `seen` dedup set, `enqueue`/`hasPendingCritical`/`length`/`dequeue` (critical always wins)/`requeueFront`/`clear` (which does NOT clear `seen`, exactly as the source comments).
+- **`tts/TtsModelManager.kt`** — side-load-resolution port of `TtsModelManager.ts`: `resolvePath`/`status`/`invalidate`, same `itantra-tts-models` sideload directory name, same "has a `.onnx` file" install check. The source's HTTP download/extraction `install()` path was **not** ported, per this migration's no-real-networking scope and the same precedent Phase 2/5 set for STT's `ModelManager` — voices must be side-loaded for this migration to exercise them. `TtsManager.installVoice()` documents this and throws rather than silently pretending to support it.
+- **`tts/TtsEngine.kt`** — direct sherpa-onnx `OfflineTts` wrapper, modeled on `react-native-sherpa-onnx`'s `SherpaOnnxTtsHelper.kt` "vits" branch (`buildTtsConfig()`'s vits case: `OfflineTtsVitsModelConfig(model, lexicon, tokens, dataDir)` inside `OfflineTtsModelConfig(vits=..., numThreads=2, provider="cpu")` inside `OfflineTtsConfig(model=...)`). Since the RN wrapper's model-directory detection is native C++ internal to its own JNI glue (not part of the public sherpa-onnx Kotlin API), this scans the model directory directly using the exact layout `ttsModels.ts`/`TtsModelManager.ts` already document: one `*.onnx` file, `tokens.txt`, and (Piper only) a shared `espeak-ng-data/` subdirectory as `dataDir` (empty for MMS, which the source states does not need it); `lexicon` is empty for both, matching the registry. Synthesizes via `OfflineTts.generate()`, saves to a temp WAV via `GeneratedAudio.save()`, and plays with `android.media.MediaPlayer` — the native-Android replacement for `expo-audio`'s `AudioPlayer`, the same kind of substitution Phase 3 made for audio capture (`AudioRecord` replacing `expo-audio`'s stream).
+- **`tts/TtsManager.kt`** — direct port of `TtsManager.ts`: `speakText()` builds a `SpeakRequest`, enqueues it, and — if a CRITICAL message arrives while a non-critical one is mid-playback — requeues the interrupted request to the front of its band, calls `engine.stopPlayback()`, and resolves the in-flight coroutine early, exactly mirroring the source's `queue.requeueFront` + `engine.stopPlayback` + `currentFinish?.()` sequence. `drain()`/`speakOne()` reproduce the same `loading-voice` → `speaking` → (next iteration or `idle`) state sequence, the same duplicate-id rejection, and the same never-throws error containment (`reportError` sets `phase=ERROR` with a short user-facing message instead of propagating). Android's audio-focus model has no exact equivalent of Expo's `setAudioModeAsync({interruptionMode})`, so the mapping is a documented judgment call (same treatment Phase 3 gave `AudioSource.MIC`): source `'doNotMix'` (critical) → `AUDIOFOCUS_GAIN_TRANSIENT` (others pause, not just duck); source `'duckOthers'` (normal) → `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`; `resetAudioFocus()` re-requests the ducking mode after drain, mirroring the source's own best-effort reset (not an abandon).
+- **`diagnostics/TtsProbe.kt`** — new, temporary (not product UI): "CHECK VOICE STATUS" (resolves installed/not-installed per language), "SPEAK NORMAL", "SPEAK CRITICAL", and "TEST CRITICAL INTERRUPTS NORMAL" (enqueues a long NORMAL message immediately followed by a CRITICAL one, to exercise the interrupt-and-requeue path), all driven through the real `TtsManager`.
+- `MainActivity.kt` — wired `TtsProbeSection()` in after the Phase 7 transport probe.
+
+**Not ported / explicitly deferred:** real voice installation (HTTP download), matching the STT precedent — side-load only in this migration.
+
+### RN source → Kotlin file mapping
+
+| RN source | Kotlin file |
+|---|---|
+| `src/config/ttsModelTypes.ts` + `src/config/ttsModels.ts` | `config/TtsModels.kt` |
+| `src/core/tts/types.ts` | `tts/TtsTypes.kt` |
+| `src/core/tts/TtsQueue.ts` | `tts/TtsQueue.kt` |
+| `src/core/tts/TtsModelManager.ts` (resolution only) | `tts/TtsModelManager.kt` |
+| `src/core/tts/TtsEngine.ts` | `tts/TtsEngine.kt` |
+| `src/core/tts/TtsManager.ts` | `tts/TtsManager.kt` |
+| (none — new diagnostic) | `diagnostics/TtsProbe.kt` |
+
+### Behavior/parity verification
+
+For real on-device verification, the Piper English voice (`vits-piper-en_US-lessac-medium`) was downloaded from the exact same URL `ttsModels.ts` registers (`k2-fsa/sherpa-onnx` release, `tts-models` tag) and side-loaded to `<filesDir>/itantra-tts-models/vits-piper-en_US-lessac-medium/` — confirming, by direct extraction, the exact file layout this phase's directory-scan logic expects: one `.onnx` file, `tokens.txt`, `espeak-ng-data/` (359 files total), matching the doc-comment claims in the TS source exactly.
+
+| Scenario | RN source behavior | Kotlin result |
+|---|---|---|
+| Voice status resolution | installed/not-installed per language, independently | **Matched** — `en-IN=installed hi-IN=not-installed` after side-loading only the English voice |
+| Normal speak | load voice (if needed) -> speak -> phase returns to idle after completion, no error | **Matched** — `loading-voice` -> (2s later) `idle`, `error=none` |
+| Critical interrupts in-progress normal | interrupted request requeued to front of its band; engine stops; critical speaks immediately | **Matched** — a long NORMAL message was mid-flight when a CRITICAL request arrived; state immediately showed `phase=speaking priority=CRITICAL isCritical=true` with the critical text |
+| Interrupted normal resumes after critical | requeued request is dequeued next and spoken from the start (not resumed mid-sentence — the source has no partial-resume concept, since `TtsEngine.speak()` always synthesizes the full text) | **Matched** — after the critical message finished, `phase=speaking priority=NORMAL requestId=02d41aa0` reappeared with the **same request id** and the full original long-message text, then the queue drained to `idle` with no error |
+| Queue drains to idle/reset | `drain()`'s `finally` resets state to `INITIAL_TTS_PLAYBACK_STATE` and calls `resetAudioFocus()` | **Matched** — state returned to `phase=idle requestId=null ... text=null` after both messages completed |
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a:
+- Built, installed, launched; scrolled to "PHASE 8 · NATIVE TTS PROBE".
+- "CHECK VOICE STATUS" correctly reported the side-loaded English voice as installed and the not-side-loaded Hindi voice as not-installed.
+- "SPEAK NORMAL" produced a full `loading-voice` -> `speaking` -> `idle` cycle with `error=none` — real `OfflineTts.generate()` synthesis, a real WAV written via `GeneratedAudio.save()`, and real `MediaPlayer` playback reaching natural completion (`onCompletion` firing, which is what unblocks the coroutine and lets `drain()` proceed to `idle`; a stuck/crashed playback would have left the state at `speaking` indefinitely, which did not happen).
+- "TEST CRITICAL INTERRUPTS NORMAL" was verified with fine-grained polling (every ~700ms): the CRITICAL message preempted the in-flight NORMAL one immediately, then the same interrupted NORMAL request (identical `requestId`, full original text) resumed and played to completion afterward, then the queue drained to idle — full, correct requeue-and-resume behavior, not just an interrupt.
+- No crash through the entire sequence (voice-status check, normal speak, critical interruption, resume, repeated runs).
+- Device remained on-screen/unlocked for the full sequence this time — no lock interruption during this phase's testing.
+
+**NOT VERIFIED:** actual audible correctness (does the synthesized speech sound like natural English, is the Piper voice quality acceptable) was not judged aurally in this session — verification relied on state-machine transitions, absence of `error`, and successful `MediaPlayer` completion callbacks, which prove the pipeline executed for real but not perceptual audio quality. Only the English Piper voice was side-loaded and tested; the other 9 languages (Hindi/Malayalam Piper, 7 MMS voices) share the identical `vits` code path already proven here, but were not individually side-loaded and tested in this session (same category of deferral as Phase 2's 8-of-9 untested Indic STT languages).
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** on the first attempt (39 actionable tasks, ~24s) — the sherpa-onnx Kotlin API field names for `OfflineTtsVitsModelConfig`/`OfflineTtsModelConfig`/`OfflineTtsConfig`/`GeneratedAudio` (inferred from `SherpaOnnxTtsHelper.kt`'s usage, since they're bundled in the AAR's `classes.jar` with no local source to read directly) all matched on the first compile.
+
+### Files changed
+
+New:
+- `android-native/app/src/main/java/com/itantra/app/config/TtsModels.kt`
+- `android-native/app/src/main/java/com/itantra/app/tts/TtsTypes.kt`
+- `android-native/app/src/main/java/com/itantra/app/tts/TtsQueue.kt`
+- `android-native/app/src/main/java/com/itantra/app/tts/TtsModelManager.kt`
+- `android-native/app/src/main/java/com/itantra/app/tts/TtsEngine.kt`
+- `android-native/app/src/main/java/com/itantra/app/tts/TtsManager.kt`
+- `android-native/app/src/main/java/com/itantra/app/diagnostics/TtsProbe.kt`
+
+Modified:
+- `android-native/app/src/main/java/com/itantra/app/MainActivity.kt` (wired `TtsProbeSection()`)
+- `MIGRATION_STATUS.md` (this section)
+
+### Known issues/limitations (Phase 8)
+
+1. Only English (Piper) was side-loaded and runtime-tested; the other 9 voices share the identical code path but are individually unverified on-device — deferred, not a defect (same category as Phase 2's STT language coverage note).
+2. Audible speech quality was not judged aurally — verification is state-machine/completion-callback based, which proves execution but not perceptual output quality.
+3. Voice installation (HTTP download) is not implemented — `TtsManager.installVoice()` throws `UnsupportedOperationException` documenting this; voices must be side-loaded. Matches the STT precedent.
+4. `AudioManager.requestAudioFocus(listener, streamType, durationHint)` (the 3-arg overload) is deprecated since API 26 in favor of `AudioFocusRequest`; used here deliberately for simplicity since minSdk is 24 and this is a direct behavior port, not an opportunity to modernize the API surface.
+5. Diagnostic UI (`TtsProbeSection`) is temporary scaffolding, same as Phases 2-7 — to be removed/relocated in the cleanup phase.
+
+### Regression notes
+
+No RN application source touched. No new/changed TTS models. No volume forced to 100%, no queue redesign, no model-loading optimization. Same Piper (English/Hindi/Malayalam) + MMS-VITS (Gujarati/Marathi/Kannada/Tamil/Telugu/Odia/Bengali) mapping. `MIGRATION_AUDIT.md` confirmed untouched before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -559,7 +649,7 @@ No RN application source touched. No Bluetooth/Wi-Fi/BLE/sockets/WebRTC/real tra
 | 5 — Complete STT pipeline | **COMPLETE** | PASS | **PASS** — full capture->VAD->segmenter->real STT->repair->filter chain verified with engine=SHERPA_ONNX active; empty segment correctly filtered; non-empty real transcript produced; no crash | Found+fixed a diagnostic-only bug (missing prepare() call, not in ported classes); transcript accuracy limited by speaker-to-mic loopback acoustics, not code |
 | 6 — Packet layer | **COMPLETE** | PASS | **PASS** — real senderId (ITX-98711904) derived from device ANDROID_ID; 5 sample packets, all classified into correct priority bands per verbatim keyword lists; no crash | Only 5/~90 keywords exercised on-device (rest verified by text comparison); diagnostic UI temporary; no transport wiring yet (Phase 7) |
 | 7 — MockTransport + receive pipeline | **COMPLETE** | PASS | **PASS** — connected send->receive loopback verified (matching id/priority); disconnected send correctly failed with no sent/received side effects; no crash | Probabilistic failureRate>0 path not exercised (same code as tested branch); receive state stays RECEIVED only until TTS wiring (Phase 8/9); diagnostic UI temporary |
-| 8 — Native TTS | Not started | — | — | — |
+| 8 — Native TTS | **COMPLETE** | PASS (first attempt) | **PASS** — real Piper English voice side-loaded/synthesized/played (MediaPlayer completion confirmed); critical interruption + full requeue-and-resume of the same request verified via fine-grained polling; no crash | Only English voice runtime-tested (9 others share the same code path, unverified); audible quality not judged aurally; voice install (HTTP) not implemented (side-load only) |
 | 9 — ViewModel/state architecture | Not started | — | — | — |
 | 10 — Compose UI | Not started | — | — | — |
 | 11 — Full end-to-end loopback | Not started | — | — | — |

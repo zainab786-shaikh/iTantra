@@ -31,6 +31,7 @@ import com.itantra.app.diagnostics.PacketProbeSection
 import com.itantra.app.diagnostics.SttPipelineProbeSection
 import com.itantra.app.diagnostics.SttProbeSection
 import com.itantra.app.diagnostics.TransportProbeSection
+import com.itantra.app.diagnostics.TtsProbeSection
 import com.itantra.app.diagnostics.VadSegmenterProbeSection
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppSizing
@@ -111,6 +112,7 @@ private fun ShellScreen(
             )
             PacketProbeSection()
             TransportProbeSection()
+            TtsProbeSection()
         }
     }
 }

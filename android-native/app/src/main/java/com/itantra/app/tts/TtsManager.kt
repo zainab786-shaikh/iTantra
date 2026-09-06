@@ -1,0 +1,257 @@
+package com.itantra.app.tts
+
+import android.content.Context
+import android.media.AudioManager
+import com.itantra.app.config.resolveTtsModelForLanguage
+import com.itantra.app.packet.PacketPriority
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.io.File
+import java.util.UUID
+
+typealias TtsStateListener = (TtsPlaybackState) -> Unit
+
+/**
+ * Direct port of src/core/tts/TtsManager.ts.
+ *
+ * The public TTS interface: resolves packet.language to a voice, loads it
+ * on demand (reusing an already-loaded voice for repeated messages in the
+ * same language, via TtsEngine's own loadedModelId check), queues normal
+ * messages, lets CRITICAL messages interrupt and jump the queue, and
+ * applies Android audio-focus behaviour for each.
+ *
+ * Android's audio-focus model differs from Expo's cross-platform
+ * `setAudioModeAsync({interruptionMode})` abstraction, so the mapping here
+ * is a direct, documented judgment call rather than an exact API mirror
+ * (same treatment Phase 3 gave `AudioSource.MIC`): the source's
+ * `'doNotMix'` (critical, exclusive) maps to
+ * `AUDIOFOCUS_GAIN_TRANSIENT` (other apps pause, not just duck), and
+ * `'duckOthers'` (normal) maps to `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`
+ * (other apps duck). `resetAudioFocus()` re-requests the ducking mode
+ * afterward, mirroring the source's own best-effort reset-to-duckOthers
+ * (not an abandon).
+ */
+class TtsManager(context: Context, ttsModelsRoot: File) {
+    private val appContext = context.applicationContext
+    private val cacheDir = appContext.cacheDir
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+    @Suppress("DEPRECATION")
+    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { }
+
+    private val models = TtsModelManager(ttsModelsRoot)
+    private val engine = TtsEngine()
+    private val queue = TtsQueue()
+
+    private var state: TtsPlaybackState = INITIAL_TTS_PLAYBACK_STATE
+    private val listeners = mutableSetOf<TtsStateListener>()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var draining = false
+    private var current: SpeakRequest? = null
+    private var currentFinish: (() -> Unit)? = null
+
+    fun getState(): TtsPlaybackState = state
+
+    fun subscribe(listener: TtsStateListener): () -> Unit {
+        listeners.add(listener)
+        return { listeners.remove(listener) }
+    }
+
+    /** Install state of the voice for [languageCode], for the UI's per-language download affordance. */
+    fun voiceStatus(languageCode: String): TtsVoiceStatus? {
+        val model = resolveTtsModelForLanguage(languageCode) ?: return null
+        return models.status(model)
+    }
+
+    /**
+     * Not ported: the source's HTTP download/extraction path
+     * (TtsModelManager.install), per this migration's explicit
+     * no-real-networking scope. Voices must be side-loaded onto the device
+     * (see TtsModelManager.kt doc comment) — matching the same precedent
+     * set for STT model installation in Phase 2/5.
+     */
+    fun installVoice(languageCode: String): Nothing {
+        throw UnsupportedOperationException(
+            "Voice installation is not implemented in this migration (no real networking) " +
+                "- side-load the voice directory for \"$languageCode\" instead."
+        )
+    }
+
+    /**
+     * Speak [text] in [language] at [priority]. Never throws — a missing
+     * voice, a synthesis failure, or a playback failure all land in
+     * `getState().error` instead, so one bad message cannot take down the
+     * receiver pipeline.
+     */
+    fun speakText(text: String, language: String, priority: PacketPriority, requestId: String? = null) {
+        val request = SpeakRequest(
+            id = requestId ?: UUID.randomUUID().toString(),
+            text = text,
+            language = language,
+            priority = priority,
+        )
+
+        val accepted = queue.enqueue(request)
+        if (!accepted) return // duplicate packet id - ignored, per spec
+
+        // A CRITICAL arrival while a lower-priority message is mid-playback
+        // interrupts it immediately. The interrupted message is not lost:
+        // it goes back to the front of its own band and will be the next
+        // thing spoken once the critical message (and anything else
+        // critical) is done.
+        val runningCurrent = current
+        if (priority == PacketPriority.CRITICAL && runningCurrent != null && runningCurrent.priority != PacketPriority.CRITICAL) {
+            queue.requeueFront(runningCurrent)
+            engine.stopPlayback()
+            currentFinish?.invoke()
+        }
+
+        scope.launch { drain() }
+    }
+
+    fun dispose() {
+        scope.cancel()
+        queue.clear()
+        engine.dispose()
+    }
+
+    private suspend fun drain() {
+        if (draining) return
+        draining = true
+        try {
+            var next = queue.dequeue()
+            while (next != null) {
+                speakOne(next)
+                next = queue.dequeue()
+            }
+        } finally {
+            draining = false
+            current = null
+            resetAudioFocus()
+            setState(INITIAL_TTS_PLAYBACK_STATE)
+        }
+    }
+
+    private suspend fun speakOne(request: SpeakRequest) {
+        current = request
+        val isCritical = request.priority == PacketPriority.CRITICAL
+
+        val model = resolveTtsModelForLanguage(request.language)
+        if (model == null) {
+            reportError(request, "This language is not supported for speech playback.")
+            return
+        }
+
+        val path = models.resolvePath(model)
+        if (path == null) {
+            reportError(request, "Language model unavailable. Install the required language pack.")
+            return
+        }
+
+        setState(
+            TtsPlaybackState(
+                phase = TtsPlaybackPhase.LOADING_VOICE,
+                requestId = request.id,
+                language = request.language,
+                text = request.text,
+                priority = request.priority,
+                isCritical = isCritical,
+                error = null,
+            )
+        )
+
+        try {
+            engine.load(model, path)
+        } catch (e: Exception) {
+            reportError(request, "Speech engine failed to start.")
+            return
+        }
+
+        requestAudioFocus(isCritical)
+
+        setState(
+            TtsPlaybackState(
+                phase = TtsPlaybackPhase.SPEAKING,
+                requestId = request.id,
+                language = request.language,
+                text = request.text,
+                priority = request.priority,
+                isCritical = isCritical,
+                error = null,
+            )
+        )
+
+        suspendCancellableCoroutine<Unit> { cont ->
+            currentFinish = {
+                currentFinish = null
+                if (cont.isActive) cont.resumeWith(Result.success(Unit))
+            }
+
+            try {
+                engine.speak(
+                    text = request.text,
+                    cacheDir = cacheDir,
+                    onFinished = { currentFinish?.invoke() },
+                    onPlaybackError = { message ->
+                        reportError(request, "Speech playback failed.")
+                        currentFinish?.invoke()
+                    },
+                )
+            } catch (e: Exception) {
+                reportError(request, "Speech synthesis failed.")
+                currentFinish?.invoke()
+            }
+        }
+    }
+
+    private fun reportError(request: SpeakRequest, message: String) {
+        setState(
+            TtsPlaybackState(
+                phase = TtsPlaybackPhase.ERROR,
+                requestId = request.id,
+                language = request.language,
+                text = request.text,
+                priority = request.priority,
+                isCritical = request.priority == PacketPriority.CRITICAL,
+                error = message,
+            )
+        )
+    }
+
+    private fun setState(next: TtsPlaybackState) {
+        state = next
+        for (listener in listeners.toList()) listener(next)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun requestAudioFocus(critical: Boolean) {
+        val durationHint = if (critical) {
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+        } else {
+            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+        }
+        try {
+            audioManager.requestAudioFocus(focusChangeListener, AudioManager.STREAM_MUSIC, durationHint)
+        } catch (e: Exception) {
+            // Best effort - not obtaining focus is not user-visible enough to fail the request over.
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun resetAudioFocus() {
+        try {
+            audioManager.requestAudioFocus(
+                focusChangeListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
+            )
+        } catch (e: Exception) {
+            // Best effort - not resetting the audio mode is not user-visible.
+        }
+    }
+}
