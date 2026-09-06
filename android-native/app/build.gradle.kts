@@ -38,6 +38,115 @@ android {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Sherpa-ONNX / ONNX Runtime — direct native integration (Phase 2).
+//
+// Deliberately NOT the react-native-sherpa-onnx TurboModule: this depends
+// directly on the same underlying prebuilt AARs that wrapper resolves for
+// the RN app (see node_modules/react-native-sherpa-onnx/android/prebuilt-
+// versions.gradle and prebuilt-download.gradle), at the exact same pinned
+// versions, so the native binaries are byte-for-byte what the RN baseline
+// already ships and has proven working:
+//   sherpa-onnx 1.12.34-2  (from third_party/sherpa-onnx-prebuilt/ANDROID_RELEASE_TAG)
+//   onnxruntime 1.24.4-qnn2.43.1.260218-1 (prebuilt-versions.gradle default)
+//
+// Both AARs bundle native .so per ABI under jni/<abi>/ AND a classes.jar
+// (com.k2fsa.sherpa.onnx.* for sherpa-onnx, ai.onnxruntime.* for onnxruntime)
+// — the same Kotlin API surface react-native-sherpa-onnx's own
+// SherpaOnnxSttHelper.kt calls into. AGP's automatic AAR handling was not
+// used here on purpose: the upstream wrapper unpacks these AARs manually
+// (custom configurations + a Gradle task) rather than a plain
+// implementation(...) AAR dependency, which is a strong signal that plain
+// AAR auto-merge does not reliably pick up the native libs from this
+// particular Maven layout — so that same manual extraction is ported here
+// rather than risking a silent UnsatisfiedLinkError at runtime.
+// ---------------------------------------------------------------------------
+val sherpaOnnxVersion = "1.12.34-2"
+val onnxruntimeVersion = "1.24.4-qnn2.43.1.260218-1"
+val requiredAbis = listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+
+val sherpaOnnxAar: Configuration by configurations.creating
+val onnxruntimeAar: Configuration by configurations.creating
+
+val sherpaOnnxClassesDir = layout.buildDirectory.dir("sherpa-onnx-classes")
+val onnxruntimeClassesDir = layout.buildDirectory.dir("onnxruntime-classes")
+
+val extractSherpaOnnxNative = tasks.register("extractSherpaOnnxNative") {
+    inputs.files(sherpaOnnxAar)
+    outputs.dir("src/main/jniLibs")
+    doLast {
+        val aar = sherpaOnnxAar.singleFile
+        val extractDir = layout.buildDirectory.dir("sherpa-onnx-aar-extract").get().asFile
+        extractDir.deleteRecursively()
+        extractDir.mkdirs()
+        project.copy { from(project.zipTree(aar)); into(extractDir) }
+        requiredAbis.forEach { abi ->
+            val jniDir = File(extractDir, "jni/$abi")
+            if (jniDir.exists()) {
+                project.copy { from(jniDir); into(File(project.file("src/main/jniLibs"), abi)) }
+            }
+        }
+    }
+}
+
+val extractSherpaOnnxClasses = tasks.register("extractSherpaOnnxClasses") {
+    inputs.files(sherpaOnnxAar)
+    outputs.dir(sherpaOnnxClassesDir)
+    doLast {
+        val dir = sherpaOnnxClassesDir.get().asFile
+        dir.mkdirs()
+        dir.listFiles()?.filter { it.name.endsWith(".jar") }?.forEach { it.delete() }
+        project.copy {
+            from(project.zipTree(sherpaOnnxAar.singleFile))
+            include("classes.jar")
+            into(dir)
+        }
+    }
+}
+
+val extractOnnxruntimeNative = tasks.register("extractOnnxruntimeNative") {
+    inputs.files(onnxruntimeAar)
+    outputs.dir("src/main/jniLibs")
+    doLast {
+        val aar = onnxruntimeAar.singleFile
+        val extractDir = layout.buildDirectory.dir("onnxruntime-aar-extract").get().asFile
+        extractDir.deleteRecursively()
+        extractDir.mkdirs()
+        project.copy { from(project.zipTree(aar)); into(extractDir) }
+        requiredAbis.forEach { abi ->
+            val jniDir = File(extractDir, "jni/$abi")
+            if (jniDir.exists()) {
+                project.copy {
+                    from(jniDir)
+                    include("libonnxruntime.so", "libonnxruntime4j_jni.so")
+                    into(File(project.file("src/main/jniLibs"), abi))
+                }
+            }
+        }
+    }
+}
+
+val extractOnnxruntimeClasses = tasks.register("extractOnnxruntimeClasses") {
+    inputs.files(onnxruntimeAar)
+    outputs.dir(onnxruntimeClassesDir)
+    doLast {
+        val dir = onnxruntimeClassesDir.get().asFile
+        dir.mkdirs()
+        dir.listFiles()?.filter { it.name.endsWith(".jar") }?.forEach { it.delete() }
+        project.copy {
+            from(project.zipTree(onnxruntimeAar.singleFile))
+            include("classes.jar")
+            into(dir)
+        }
+        val extracted = File(dir, "classes.jar")
+        if (extracted.exists()) extracted.renameTo(File(dir, "onnxruntime-classes.jar"))
+    }
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn(extractSherpaOnnxNative, extractSherpaOnnxClasses, extractOnnxruntimeNative, extractOnnxruntimeClasses)
+}
+
 dependencies {
     // Pinned below the newest releases deliberately: the latest core-ktx/
     // compose-bom lines now require compileSdk 37 + AGP 9.1.0+, and this
@@ -55,4 +164,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    sherpaOnnxAar("com.xdcobra.sherpa:sherpa-onnx:$sherpaOnnxVersion@aar")
+    onnxruntimeAar("com.xdcobra.sherpa:onnxruntime:$onnxruntimeVersion@aar")
+    implementation(fileTree(sherpaOnnxClassesDir) { include("*.jar") }.builtBy(extractSherpaOnnxClasses))
+    implementation(fileTree(onnxruntimeClassesDir) { include("*.jar") }.builtBy(extractOnnxruntimeClasses))
 }

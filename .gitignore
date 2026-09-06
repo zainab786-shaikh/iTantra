@@ -49,6 +49,11 @@ yarn-error.*
 /android-native/build/
 /android-native/app/build/
 /android-native/app/.cxx/
+# Native .so files extracted from the com.xdcobra.sherpa AARs by the
+# extractSherpaOnnxNative/extractOnnxruntimeNative Gradle tasks in
+# app/build.gradle.kts — 100+ MB, fully regenerated on every build from the
+# pinned AAR versions, never hand-authored.
+/android-native/app/src/main/jniLibs/
 
 # scratch / temp / large model files
 .scratch/
