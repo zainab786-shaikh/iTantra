@@ -15,6 +15,9 @@ package com.itantra.app.config
  * current mapping, they are not ported here at all — not even as inert
  * config.
  */
+/** Direct port of SttModelFile in src/config/models.ts — one direct-downloadable file. */
+data class SttModelFile(val filename: String, val url: String)
+
 data class SttModelDescriptor(
     /** Release asset name minus ".tar.bz2", or on-disk directory name — matches src/core/stt/ModelManager.ts's SIDELOAD_DIR/<id> convention. */
     val id: String,
@@ -27,10 +30,18 @@ data class SttModelDescriptor(
     val approxMb: Int,
     val preferInt8: Boolean,
     val numThreads: Int,
+    /**
+     * Direct downloadable files (loose Hugging Face files) — every Indic
+     * language uses this. Null means the model instead ships as a single
+     * .tar.bz2 release archive (English NeMo CTC only), matching the
+     * source's `downloadFiles?` field exactly.
+     */
+    val downloadFiles: List<SttModelFile>? = null,
 )
 
 private const val HF_INDIC_BASE =
     "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main"
+private const val INDIC_TOKENS_URL = "$HF_INDIC_BASE/tokens.txt"
 
 /** Mirrors createIndicConformer() in src/config/models.ts. */
 private fun indicConformer(langCode: String, langTag: String, name: String) = SttModelDescriptor(
@@ -41,6 +52,10 @@ private fun indicConformer(langCode: String, langTag: String, name: String) = St
     approxMb = 188,
     preferInt8 = true,
     numThreads = 2,
+    downloadFiles = listOf(
+        SttModelFile("tokens.txt", INDIC_TOKENS_URL),
+        SttModelFile("model.int8.onnx", "$HF_INDIC_BASE/$langCode/model.int8.onnx"),
+    ),
 )
 
 val NEMO_CTC_ENGLISH = SttModelDescriptor(
@@ -75,6 +90,13 @@ val INDIC_CONFORMER_ODIA = SttModelDescriptor(
     approxMb = 188,
     preferInt8 = true,
     numThreads = 2,
+    downloadFiles = listOf(
+        // Odia's tokens.txt is named "vocab.txt" at this HF repo, saved
+        // locally as "tokens.txt" to match the on-disk shape every other
+        // model uses — same as the source's INDIC_CONFORMER_ODIA.
+        SttModelFile("tokens.txt", "https://huggingface.co/OpenVoiceOS/ai4bharat-indicconformer-or-onnx/resolve/main/vocab.txt"),
+        SttModelFile("model.int8.onnx", "https://huggingface.co/OpenVoiceOS/ai4bharat-indicconformer-or-onnx/resolve/main/model.int8.onnx"),
+    ),
 )
 
 /** Same order as STT_MODELS' active (non-Dolphin/Whisper) entries in src/config/models.ts. */

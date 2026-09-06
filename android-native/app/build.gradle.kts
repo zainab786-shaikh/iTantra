@@ -160,6 +160,13 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
+    // Pure-Java tar+bzip2 extraction for the English NeMo CTC model's
+    // .tar.bz2 release archive (SttModelManager.kt). The RN baseline's
+    // react-native-sherpa-onnx/extraction module did this natively; this
+    // migration has no equivalent native module, so a small, standard JVM
+    // library replaces it rather than hand-rolling bzip2 decompression.
+    implementation("org.apache.commons:commons-compress:1.26.0")
+
     implementation(platform("androidx.compose:compose-bom:2025.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")

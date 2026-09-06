@@ -9,6 +9,16 @@
     -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!--
+        Needed for SttModelManager.kt's model download (the one piece of
+        real RN behavior this permission enables — Expo/RN apps carry this
+        permission unconditionally by default, since Metro/networking is
+        assumed baseline; it was never explicitly listed in app.json's
+        android.permissions array because that array is only for
+        dangerous/runtime permissions, not this normal-protection one).
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

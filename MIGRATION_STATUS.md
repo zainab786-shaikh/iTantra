@@ -1098,6 +1098,97 @@ No behavior changed — a from-scratch clean build and full on-device smoke test
 
 ---
 
+## Post-migration fix — STT Model Setup/Download Flow
+
+**Status:** COMPLETE, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### Context
+
+After the migration (Phases 0-14) was reported complete, a follow-up request asked specifically: was the Transmit screen's "DOWNLOAD · 188 MB" button (`ModelCard`'s install affordance) ever real functionality in the RN app, or only a UI placeholder? Every prior phase report (2, 5, 9) had documented STT model installation as "not implemented in this migration (no real networking) — side-load only," treating it as equivalent to TTS voice installation (Phase 8), which genuinely never had a working implementation.
+
+**Investigation, before any code was written:** `src/core/stt/ModelManager.ts` and `src/config/models.ts` were retrieved from git history (`git show pre-kotlin-migration:<path>` — both files were deleted from the working tree in Phase 14, but remain fully intact in the `pre-kotlin-migration` tag and on `main`). This confirmed the RN app's download button was **real, working functionality**, not a placeholder:
+- English (`NEMO_CTC_ENGLISH`) downloads a `.tar.bz2` archive from `k2-fsa/sherpa-onnx`'s `asr-models` GitHub release and extracts it.
+- All 9 Indic languages download two loose files (`tokens.txt` + `model.int8.onnx`) directly from Hugging Face (`parismitaglobalsolutions/indicconformer-sherpa-onnx` for 8 of them; Odia uses a different repo, `OpenVoiceOS/ai4bharat-indicconformer-or-onnx`).
+- Both write into the exact same `itantra-models/<id>/` directory the side-load check already scans — "install" and "side-load" were never two different locations in the source, just two different ways of getting a valid model into one directory.
+
+This was reported back to the user before implementing anything, per their explicit instruction, and the fix was scoped narrowly to this one flow.
+
+### What was built
+
+- **`config/SttModels.kt`** — added `SttModelFile(filename, url)` and an optional `downloadFiles: List<SttModelFile>?` field to `SttModelDescriptor` (additive, defaults to `null`, does not change any existing call site). Populated the exact source URLs for all 9 Indic descriptors (shared `tokens.txt` URL + per-language `model.int8.onnx` URL), including Odia's distinct repo and its `vocab.txt`-saved-as-`tokens.txt` remapping.
+- **`stt/SttModelManager.kt`** (new) — direct port of `ModelManager.ts`'s `install()`: loose-file download for Indic languages (with the source's own resume-skip-if-already-downloaded check), archive download + extraction for English. HTTP download via plain `HttpURLConnection` streaming to file (progress throttled to ~400ms intervals, matching the source's `progressInterval: 400`); tar+bzip2 extraction via Apache Commons Compress (`org.apache.commons:commons-compress:1.26.0`, the one new dependency this fix adds, replacing the native `react-native-sherpa-onnx/extraction` module the RN app used). `resolvePath()`/`status()` needed no new code — `checkSttModelStatus()` (Phase 10) already scans the identical directory.
+- **`stt/SttModelStatus.kt`** — extended from 2 states (`NotInstalled`/`Installed`) to 4 (`NotInstalled`/`Downloading(percent, phase)`/`Installed`/`Error`), matching the source's `ModelStatus` minus the `unsupported` state (unreachable in a native build — the sherpa-onnx module is always linked, unlike Expo Go).
+- **`viewmodel/TransmitterViewModel.kt`** — `installModel()` rewritten from a stub that always threw, to a direct port of `useTransmitterController.ts`'s `installModel()`: set `Downloading(0, ...)`, call `SttModelManager.install()` with a progress callback, then `sttProvider.reset()` + `prepare()` (so a language that had fallen back to the placeholder decoder picks up the newly-installed model immediately), then re-resolve `modelStatus`, catching any failure into the `Error` state.
+- **`ui/components/ModelCard.kt`** — restored the `downloading` (progress bar + spinner) and `error` (message + "RETRY DOWNLOAD") states from the original `ModelCard.tsx`, which Phase 10 had deliberately narrowed to 2 states since the feature didn't exist yet. Same layout, same colors, same copy as the source — not a redesign, a completion of the existing port.
+- **`AndroidManifest.xml`** — added `INTERNET` permission (needed for the download; Expo/RN apps carry this by default, it was just never explicit in `app.json`'s `android.permissions` array since that array only lists dangerous/runtime permissions).
+- **`ui/screens/TransmitterScreen.kt`** — simplified `onInstall` to a direct call (the try/catch wrapper was a workaround for the old always-throwing stub).
+
+**Explicitly not touched:** VAD, sentence segmentation, `SttEngine`/`SherpaSttBackend`/`SttEngineProvider`'s decode path, `EnergyVad`, `TtsManager`/`TtsQueue`, `PriorityClassifier`, `PacketFactory`, `MockTransport`, or any UI layout beyond `ModelCard`'s already-existing (Phase 10) download-state rendering. No new models, no real transport networking, no optimization.
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a — including an unplanned but conclusive real-world test: while verifying the fix, the user began independently testing the same feature live on the device in parallel with this session's own ADB-driven testing (confirmed by asking directly, after ruling out rogue automation via `ps -A` and `settings get secure enabled_accessibility_services`, both empty). Between the two of us, four different Indic models were downloaded for real over the device's actual network connection:
+
+```
+$ adb shell run-as com.itantra.app ls files/itantra-models/
+indicconformer-gu
+indicconformer-hi
+indicconformer-kn
+indicconformer-mr
+sherpa-onnx-nemo-ctc-en-conformer-medium
+```
+
+Each directory contains exactly the expected files at the expected size:
+```
+indicconformer-hi/model.int8.onnx   197,595,593 bytes  (~188 MB, matches descriptor)
+indicconformer-hi/tokens.txt             67,605 bytes  (identical across all 4 - shared URL)
+indicconformer-gu/model.int8.onnx   197,595,461 bytes
+indicconformer-kn/model.int8.onnx   197,595,728 bytes
+indicconformer-mr/model.int8.onnx   197,595,593 bytes
+```
+
+**Confirmed the Kotlin `SttEngineProvider` recognizes and loads the downloaded models** — not just that files exist on disk: after the Hindi download completed, real transmissions in Hindi produced genuine Devanagari transcripts ("नमस्ते", "नमस्ते कहाँ हो रहे न", "ज मझला") in the Transmit screen's packet log. This is conclusive: `PlaceholderSttBackend` (the fallback when no real decoder loads) only ever emits bracketed English diagnostic text like `[no speech model installed — ...]` — it is structurally incapable of producing real Hindi script. Real Devanagari output means `SherpaSttBackend.load()` found the newly-downloaded `model.int8.onnx`/`tokens.txt`, constructed a working `OfflineRecognizer`, and decoded real audio through it.
+
+The English pipeline (already-installed, unaffected by this fix) continued to transcribe correctly throughout (`"that is an emergency"`, correctly classified `CRITICAL`), confirming no regression to the already-working decode path.
+
+The receive side separately showed `ERROR` / "Language model unavailable. Install the required language pack." for the received Hindi messages — this is the **TTS voice** install path (a different, still-intentionally-unimplemented feature per Phase 8's own scope; this fix was scoped to STT only, per the request), and its exact-match error text confirms that unrelated code path is unaffected too.
+
+**Also confirmed:** multiple overlapping `installModel()` calls (the user rapidly switched languages while downloads were in flight) did not crash the app — each download's progress briefly overwrote the shared `modelStatus` slot with whichever install's callback fired most recently, a real but harmless race. The RN source has the identical property (`installModel`'s `useCallback` does not cancel or track a previous in-flight promise either), so this is a preserved characteristic of the original design, not a regression introduced here.
+
+**NOT VERIFIED:** the English archive-download-and-extract code path (`SttModelManager`'s `.tar.bz2` branch, using Apache Commons Compress) was not exercised live on this device, because English was already installed from an earlier phase's manual side-load and the download button only renders when a model is *not* installed. Only the direct-loose-file path (all 9 Indic languages) was exercised live. The extraction code was validated via successful compilation and is a standard, widely-used library combination (`TarArchiveInputStream` over `BZip2CompressorInputStream`), but re-triggering it specifically would require temporarily removing the installed English model on the user's active device, which was not done in this session.
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** on the first attempt (39 actionable tasks, ~42s).
+
+### Files changed
+
+New:
+- `android-native/app/src/main/java/com/itantra/app/stt/SttModelManager.kt`
+
+Modified:
+- `android-native/app/build.gradle.kts` (added `commons-compress` dependency)
+- `android-native/app/src/main/AndroidManifest.xml` (added `INTERNET` permission)
+- `android-native/app/src/main/java/com/itantra/app/config/SttModels.kt` (added `downloadFiles` to the registry)
+- `android-native/app/src/main/java/com/itantra/app/stt/SttModelStatus.kt` (extended to 4 states)
+- `android-native/app/src/main/java/com/itantra/app/ui/components/ModelCard.kt` (restored downloading/error UI states)
+- `android-native/app/src/main/java/com/itantra/app/ui/screens/TransmitterScreen.kt` (simplified `onInstall`)
+- `android-native/app/src/main/java/com/itantra/app/viewmodel/TransmitterViewModel.kt` (real `installModel()`)
+
+### Known issues/limitations
+
+1. English's archive-extraction download path not re-triggered live this session (see above) — logically verified via successful build and a standard library combination, not device-tested.
+2. Concurrent/overlapping installs share one `modelStatus` slot with no cancellation of a superseded install, exactly matching the source's own behavior — not something to "fix," per this migration's explicit preserve-imperfections rule.
+3. TTS voice installation remains unimplemented (unchanged, out of scope for this fix, matching Phase 8's original scope decision).
+
+### Regression notes
+
+No VAD/segmentation/STT-decode/TTS/packet/MockTransport pipeline code touched. No new models, no real transport networking, no optimization, no UI redesign — `ModelCard`'s restored states are a direct, verbatim match of the original `ModelCard.tsx`, not new design. `MIGRATION_AUDIT.md` confirmed untouched before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |

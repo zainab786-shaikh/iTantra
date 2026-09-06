@@ -21,6 +21,7 @@ import com.itantra.app.packet.buildPacket
 import com.itantra.app.stt.NonSpeechFilter
 import com.itantra.app.stt.SttEngineKind
 import com.itantra.app.stt.SttEngineProvider
+import com.itantra.app.stt.SttModelManager
 import com.itantra.app.stt.SttModelStatus
 import com.itantra.app.stt.checkSttModelStatus
 import com.itantra.app.transport.Transport
@@ -35,6 +36,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val TAG = "TransmitterViewModel"
@@ -69,6 +71,7 @@ class TransmitterViewModel(
 
     private val vad = EnergyVad()
     private val sttProvider = SttEngineProvider(modelsRootDir)
+    private val sttModelManager = SttModelManager(modelsRootDir)
     private var vadConfig: VadConfig = DEFAULT_VAD_CONFIG.copy(endOfSpeechSilenceMs = DEFAULT_VAD_CONFIG.endOfSpeechSilenceMs)
 
     private val segmenter: SentenceSegmenter = SentenceSegmenter(
@@ -197,15 +200,35 @@ class TransmitterViewModel(
     }
 
     /**
-     * Not ported: the source's HTTP model-download path (ModelManager.ts),
-     * per this migration's no-real-networking scope - same precedent as
-     * Phase 8's TtsManager.installVoice(). The model must be side-loaded.
+     * Direct port of useTransmitterController.ts's installModel(): download
+     * (and, for the English archive, extract) the decoder for the current
+     * language, then re-evaluate the STT provider exactly as the source
+     * does - `sttRef.current!.reset()` followed by `prepare()`, so a
+     * language that had fallen back to the placeholder decoder picks up
+     * the newly-installed model immediately.
      */
-    fun installModel(): Nothing {
-        throw UnsupportedOperationException(
-            "Model installation is not implemented in this migration (no real networking) " +
-                "- side-load the model directory instead."
-        )
+    fun installModel() {
+        val model = resolveModelForLanguage(_language.value) ?: NEMO_CTC_ENGLISH
+        _modelStatus.value = SttModelStatus.Downloading(0, "downloading")
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    sttModelManager.install(model) { percent, phase ->
+                        _modelStatus.value = SttModelStatus.Downloading(percent, phase)
+                    }
+                }
+
+                // The provider has already concluded there is no native
+                // decoder; make it re-evaluate now that one exists.
+                sttProvider.reset()
+                val status = sttProvider.prepare(_language.value)
+                patch(engine = status.kind, error = null)
+
+                _modelStatus.value = checkSttModelStatus(modelsRootDir, model)
+            } catch (e: Exception) {
+                _modelStatus.value = SttModelStatus.Error(e.message ?: e.javaClass.simpleName)
+            }
+        }
     }
 
     /** Begin capture; VAD then segments speech automatically. */

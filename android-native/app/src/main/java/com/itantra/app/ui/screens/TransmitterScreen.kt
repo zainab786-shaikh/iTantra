@@ -186,14 +186,7 @@ fun TransmitterScreen(
                 status = modelStatus,
                 label = activeModel.label,
                 sizeMb = activeModel.approxMb,
-                onInstall = {
-                    try {
-                        transmitter.installModel()
-                    } catch (e: Exception) {
-                        // Not implemented in this migration (no real networking) -
-                        // model must be side-loaded. See TransmitterViewModel.installModel().
-                    }
-                },
+                onInstall = { transmitter.installModel() },
             )
 
             TelemetryStrip(pauseMs = pauseMs, onPauseChange = { transmitter.setPauseMs(it) })
