@@ -76,7 +76,21 @@ private fun AppShell(appViewModel: AppViewModel) {
     var audioPermissionGranted by remember { mutableStateOf(AudioCapture.hasPermission(context)) }
     val requestAudioPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> audioPermissionGranted = granted }
+    ) { granted ->
+        audioPermissionGranted = granted
+        // Mirrors useTransmitterController.ts's startPtt(), which awaits
+        // requestRecordingPermissionsAsync() and proceeds to open the mic in
+        // the same call if granted (or reports the exact same denial message
+        // if not). Android's permission request is an Activity-level
+        // operation the ViewModel cannot itself await mid-press, so the UI
+        // layer requests it and reports the outcome back here instead of
+        // silently requiring a second press to actually start capturing.
+        if (granted) {
+            appViewModel.transmitter.startPtt(context)
+        } else {
+            appViewModel.transmitter.reportMicPermissionDenied()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(AppColor.Void)) {
         when (mode) {

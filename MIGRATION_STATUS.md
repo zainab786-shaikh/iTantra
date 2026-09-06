@@ -889,6 +889,68 @@ No RN application source touched. No code changed this phase. `MIGRATION_AUDIT.m
 
 ---
 
+## Phase 12 — RN vs Kotlin Parity
+
+**Status:** COMPLETE, 4 genuine regressions found and fixed, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was done
+
+A dedicated fresh line-by-line comparison (delegated to a sub-agent for thoroughness, then acted on directly) across: UI copy in every screen/component, transmitter/receiver state-transition logic, error-message text, the full `PriorityClassifier` keyword lists, and the TTS queue/manager interrupt logic. Full re-verification of `priority.ts` vs `PriorityClassifier.kt` (all ~90 keywords, 4 bands, 9 languages) and `TtsQueue.ts`/`TtsManager.ts` vs their Kotlin equivalents found **zero differences** — those remain exact ports. Four genuine discrepancies were found and fixed; none required redesigning anything, only correcting deviations from the source:
+
+1. **PTT permission flow changed user-visible behavior.** Source: `startPtt()` awaits the permission request and, if granted, proceeds to open the mic in the same call; if denied, it surfaces `"Microphone permission denied. Enable it in system settings."` immediately. The Kotlin UI gated the call on permission already being granted, so (a) a user who denied the permission saw **no error message at all** (the denial branch in `TransmitterViewModel.startPtt()` was unreachable through the shipped UI), and (b) a user who granted it had to press-and-hold a **second time** to actually start capturing. **Fixed:** added `TransmitterViewModel.reportMicPermissionDenied()` (surfaces the exact source string) and wired `MainActivity`'s permission-launcher callback to call `transmitter.startPtt(context)` immediately on grant, or `reportMicPermissionDenied()` on denial — matching the source's "resolve, then proceed in the same flow" behavior as closely as Android's Activity-level permission model allows (a perfectly identical single continuous touch gesture across a system permission dialog is not possible on Android regardless of implementation, since the dialog takes over the window).
+2. **"Microphone unavailable" error text was not the fixed source string.** Source shows exactly one message for any mic-start failure, logging the real exception only to the console. Kotlin was surfacing `e.message`, which resolved to one of **three different** internal messages from `AudioCapture.kt` depending on which check failed, only one of which matched the source text verbatim. **Fixed:** `TransmitterViewModel`'s catch block now always uses the exact fixed source string and logs the real exception via `Log.w` instead (mirroring `console.warn`).
+3. **Timestamp format forced 24-hour, ignoring locale/device settings.** Source uses `Date.toLocaleTimeString()` (locale-aware). Kotlin used `SimpleDateFormat("HH:mm:ss", ...)`, always 24-hour regardless of device settings. **Fixed:** `PacketLog.kt` and `ReceivedMessageLog.kt` now use `DateFormat.getTimeInstance(DateFormat.MEDIUM, Locale.getDefault())`, matching the source's locale-driven format.
+4. **`NonSpeechFilter.kt`'s `FULLY_TAGGED` regex had an extra `{` not present in `hallucinations.ts`**, an asymmetric, unintentional deviation from a class documented as a "direct, verbatim port." **Fixed:** removed the stray character so the opening-tag character class exactly matches the source (`[`, `(`, `【`, `♪`, `*`).
+
+### RN source → Kotlin file mapping
+
+No new files; the fixes touch already-mapped files: `viewmodel/TransmitterViewModel.kt`, `MainActivity.kt`, `ui/components/{PacketLog,ReceivedMessageLog}.kt`, `stt/NonSpeechFilter.kt`.
+
+### Behavior/parity verification
+
+| Discrepancy | Before | After |
+|---|---|---|
+| Permission denial message | Unreachable — no error ever shown | Reachable — exact source string shown |
+| Permission grant → capture start | Required a second press | Auto-starts immediately on grant |
+| Mic-unavailable message | 1 of 3 possible strings, 2 not matching source | Always the exact source string |
+| Timestamp format | Always 24-hour | Locale-aware (matches `toLocaleTimeString()`) |
+| `FULLY_TAGGED` regex | Asymmetric extra `{` | Exact match to source |
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a: revoked `RECORD_AUDIO` via `pm revoke` to force a fresh permission prompt (this device normally auto-grants ADB-sideloaded debuggable apps, so this was necessary to actually exercise the real system dialog). Tapped PTT: the real Android "Allow iTantra to record audio?" dialog appeared (not auto-granted this time). Tapped "WHILE USING THE APP": the app **immediately** transitioned to `SPEAKING`/"RELEASE TO SEND" with the active yellow PTT button and live wave visualizer — confirmed the fix works, capturing starts on grant without a second press. A subsequent press-release correctly returned the app to `STANDBY`/"HOLD TO TALK". App process remained stable (`pidof` confirmed) throughout.
+
+**NOT VERIFIED:** the denial path (`reportMicPermissionDenied()`) was not separately re-tested on-device this phase (would require tapping "DON'T ALLOW" in the system dialog); the code path is a direct, simple call mirroring the already-proven pattern used elsewhere in this class.
+
+**Incidental finding, handled per established practice:** `MIGRATION_AUDIT.md`'s working tree showed a small unexplained diff (two blank lines inserted) with no corresponding intentional edit this session — the same category of anomaly noted in Phases 0/1. Restored via `git restore MIGRATION_AUDIT.md` before staging, verified clean via `git diff --stat` immediately after.
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** (39 actionable tasks, ~14s).
+
+### Files changed
+
+Modified:
+- `android-native/app/src/main/java/com/itantra/app/viewmodel/TransmitterViewModel.kt` (fixed mic-unavailable message, added `reportMicPermissionDenied()`)
+- `android-native/app/src/main/java/com/itantra/app/MainActivity.kt` (auto-start capture on permission grant, report denial)
+- `android-native/app/src/main/java/com/itantra/app/ui/components/PacketLog.kt` (locale-aware timestamp)
+- `android-native/app/src/main/java/com/itantra/app/ui/components/ReceivedMessageLog.kt` (locale-aware timestamp)
+- `android-native/app/src/main/java/com/itantra/app/stt/NonSpeechFilter.kt` (regex fix)
+- `MIGRATION_STATUS.md` (this section)
+
+### Known issues/limitations (Phase 12)
+
+1. Denial path (`reportMicPermissionDenied()`) not separately re-tested live this phase.
+2. A perfectly identical single-gesture permission-then-capture flow (as RN's single `await`-based function achieves) is not fully achievable on Android, since the system permission dialog necessarily interrupts any in-progress touch gesture — the fix (auto-start on grant, regardless of whether the original press is still held) is the closest practical equivalent, not a byte-for-byte behavioral clone.
+
+### Regression notes
+
+Four genuine regressions found and fixed, per this phase's actual purpose. No new features, redesigns, or scope expansion — each fix strictly restores source-matching behavior. `MIGRATION_AUDIT.md` restored after an incidental unexplained diff and confirmed clean before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -905,7 +967,7 @@ No RN application source touched. No code changed this phase. `MIGRATION_AUDIT.m
 | 9 — Kotlin state/ViewModels | **COMPLETE** | PASS | **PASS** — full transmit->packet->shared MockTransport->receive->TTS chain verified live (20 real decode/packet/receive/speak cycles via speaker-to-mic loopback); language auto-resolves on construction; no crash | Only English exercised (setLanguage/setPauseMs unverified this phase); installModel() throws (no networking, matches Phase 8) |
 | 10 — Actual iTantra UI | **COMPLETE** | PASS (after fixing an animateFloat API mistake + a status-bar inset bug) | **PASS** — real end-to-end proof: 3 genuine ambient-speech utterances captured via the real PTT button, correctly transcribed/classified (NORMAL/HIGH/CRITICAL), sent, received, and spoken, all through the actual product UI; mode switching preserves state; no crash | CriticalAlertBanner not visually captured mid-display (code-verified only); diagnostic probe files still present but unreferenced (Phase 13 removes them) |
 | 11 — Full native end-to-end | **COMPLETE** | N/A (no code changed) | **PASS** — verification-only phase confirming Phase 9/10's wiring drives the complete transmit+receive chain through the real UI; correctly silent when no real speech present | Live re-capture of critical-interrupt-during-playback via the product UI not reproduced this phase (unchanged code already proven in Phase 8) |
-| 12 — Parity testing | Not started | — | — | — |
+| 12 — RN vs Kotlin parity | **COMPLETE** | PASS | **PASS** — 4 genuine regressions found and fixed (PTT permission flow, mic-unavailable message text, timestamp locale format, a regex typo); PriorityClassifier/TtsQueue/TtsManager re-verified with zero differences; fix confirmed live on-device | Denial path not separately re-tested; single-gesture permission flow can't be byte-for-byte identical on Android |
 | 13 — Performance optimization | Not started | — | — | — |
 | 14 — Real device-to-device transport | Not started | — | — | — |
 | 15 — Remove React Native | Not started | — | — | — |

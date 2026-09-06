@@ -48,7 +48,7 @@ object NonSpeechFilter {
      * "[Music]", "(applause)", "♪♪♪" — is a subtitle annotation, never
      * speech.
      */
-    private val FULLY_TAGGED = Regex("^[\\s]*[\\[({【♪*][^\\])】]*[\\])】♪*][\\s.!?]*$")
+    private val FULLY_TAGGED = Regex("^[\\s]*[\\[(【♪*][^\\])】]*[\\])】♪*][\\s.!?]*$")
 
     /** Strip punctuation and collapse whitespace, for phrase comparison. */
     private fun normalize(text: String): String =

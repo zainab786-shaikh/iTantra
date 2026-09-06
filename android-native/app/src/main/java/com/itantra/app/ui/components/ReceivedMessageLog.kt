@@ -27,7 +27,7 @@ import com.itantra.app.receiver.ReceivedMessageState
 import com.itantra.app.ui.hexColor
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppRadius
-import java.text.SimpleDateFormat
+import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
@@ -143,8 +143,10 @@ fun ReceivedMessageLog(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(m.packet.timestamp)) +
-                                    " · ${m.packet.senderId}",
+                                // Locale-aware, matching the source's
+                                // Date.toLocaleTimeString().
+                                DateFormat.getTimeInstance(DateFormat.MEDIUM, Locale.getDefault())
+                                    .format(Date(m.packet.timestamp)) + " · ${m.packet.senderId}",
                                 color = AppColor.TextFaint,
                                 fontSize = 10.sp,
                             )

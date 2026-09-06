@@ -1,6 +1,7 @@
 package com.itantra.app.viewmodel
 
 import android.content.Context
+import android.util.Log
 import com.itantra.app.audio.AudioCapture
 import com.itantra.app.audio.PcmMath
 import com.itantra.app.config.DEFAULT_LANGUAGE
@@ -35,6 +36,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
+
+private const val TAG = "TransmitterViewModel"
 
 /**
  * Direct port of src/hooks/useTransmitterController.ts's state and
@@ -178,6 +181,22 @@ class TransmitterViewModel(
     }
 
     /**
+     * Surfaces the same denial message the source shows when
+     * requestRecordingPermissionsAsync() resolves to `granted: false` inside
+     * startPtt(). On Android, requesting a runtime permission is an
+     * Activity-level operation the ViewModel cannot itself await mid-gesture
+     * (unlike RN's single async startPtt()), so the UI layer requests the
+     * permission and reports the outcome back here - see
+     * MainActivity.kt's permission launcher callback.
+     */
+    fun reportMicPermissionDenied() {
+        patch(
+            status = TransmitterStatus.ERROR,
+            error = "Microphone permission denied. Enable it in system settings.",
+        )
+    }
+
+    /**
      * Not ported: the source's HTTP model-download path (ModelManager.ts),
      * per this migration's no-real-networking scope - same precedent as
      * Phase 8's TtsManager.installVoice(). The model must be side-loaded.
@@ -209,9 +228,18 @@ class TransmitterViewModel(
         try {
             capture.start(context)
         } catch (e: Exception) {
+            // On a device that genuinely has a microphone, a failed start means
+            // something else holds it - most often an in-progress phone call,
+            // which Android gives exclusive access. Matches the source: the
+            // real exception is logged for diagnostics, but the user always
+            // sees the same fixed message regardless of the specific internal
+            // reason (mirrors useTransmitterController.ts's single fixed
+            // error string here, not e.message).
+            Log.w(TAG, "microphone unavailable", e)
             patch(
                 status = TransmitterStatus.ERROR,
-                error = e.message ?: "Microphone unavailable.",
+                error = "Microphone unavailable — another app is using it. " +
+                    "End any ongoing call or voice recording, then try again.",
             )
             return
         }

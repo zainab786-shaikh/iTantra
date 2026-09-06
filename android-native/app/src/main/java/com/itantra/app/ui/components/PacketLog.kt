@@ -25,7 +25,7 @@ import com.itantra.app.packet.PRIORITY_COLORS
 import com.itantra.app.ui.hexColor
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppRadius
-import java.text.SimpleDateFormat
+import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
@@ -101,7 +101,11 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                         }
                         Text(entry.packet.text, color = AppColor.Text, fontSize = 14.sp, lineHeight = 20.sp)
                         Text(
-                            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(entry.packet.timestamp)),
+                            // Locale-aware, matching the source's
+                            // Date.toLocaleTimeString() (device/locale
+                            // 12h-vs-24h convention), not a fixed format.
+                            DateFormat.getTimeInstance(DateFormat.MEDIUM, Locale.getDefault())
+                                .format(Date(entry.packet.timestamp)),
                             color = AppColor.TextFaint,
                             fontSize = 10.sp,
                         )
