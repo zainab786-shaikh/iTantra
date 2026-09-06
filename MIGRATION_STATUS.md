@@ -1189,6 +1189,103 @@ No VAD/segmentation/STT-decode/TTS/packet/MockTransport pipeline code touched. N
 
 ---
 
+## Post-migration fix — Indic TTS Not Producing Speech
+
+**Status:** COMPLETE, verified on physical device for all 10 languages
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### Context
+
+Follow-up report: English TTS worked, but no Indic-language TTS produced speech. This was scoped as strictly a parity/debugging task — no architecture changes, no new models, no optimization, no UI redesign, and explicitly not a repeat of the STT download fix unless the RN source proved a real TTS download flow existed.
+
+**Root cause, determined before writing any code:** category **A — the voice models were simply never installed on this device.** `adb shell run-as com.itantra.app ls files/itantra-tts-models/` showed only the English Piper voice present; none of the 9 Indic voices had ever been downloaded or side-loaded. This was not a code defect in `TtsEngine`/`TtsManager`/`TtsQueue` — proven by manually side-loading one real Piper voice (Hindi) and one real MMS voice (Gujarati) onto the device and confirming both synthesized and played back with zero errors through the existing, untouched engine code.
+
+The deeper question was *why* no Indic voice was ever installed, since `TtsStatusCard` (Phase 10) already renders an "INSTALL X PACK" button. Investigation of `src/core/tts/TtsModelManager.ts` and `src/config/ttsModels.ts` (retrieved via `git show pre-kotlin-migration:<path>`, since Phase 14 deleted the RN source from the working tree) confirmed the button was **real, working RN functionality**, exactly like the STT download button — not a placeholder. The Kotlin port's `TtsManager.installVoice()` had been left as a throwing stub since Phase 8 (which explicitly scoped TTS installation as "not implemented — side-load only," matching what the STT `ModelManager` looked like *before* its own download fix). The mapping and file paths were already correct (`config/TtsModels.kt` is a byte-for-byte match of the source); only the actual download/extract implementation was missing.
+
+### RN source behavior (confirmed via git history)
+
+- **Piper voices** (English, Hindi, Malayalam) ship as a `.tar.bz2` archive from the `k2-fsa/sherpa-onnx` `tts-models` GitHub release, extracted into `itantra-tts-models/<id>/` — same archive+extract shape as STT's English model.
+- **MMS-VITS voices** (Gujarati, Marathi, Kannada, Tamil, Telugu, Odia, Bengali) ship as two loose files (`model.onnx` + `tokens.txt`) from a Hugging Face repo (`willwade/mms-tts-multilingual-models-onnx`), no archive — same loose-file shape as STT's Indic models, confirmed the source's own weighted-progress comment ("bar shouldn't jump to ~90% the instant tokens.txt finishes," since `model.onnx` is 64-114 MB and `tokens.txt` a few hundred bytes).
+- Both source types write into the same on-disk directory the side-load check already scans (`TTS_SIDELOAD_DIR` = `itantra-tts-models`) — install and side-load were never two different locations, exactly the same pattern already confirmed for STT.
+
+### Kotlin code involved
+
+- **`tts/TtsModelManager.kt`** — `install()` rewritten from side-load-scan-only to a direct port of `TtsModelManager.ts`: `installArchive()` (download `.tar.bz2`, extract via Apache Commons Compress, delete the archive) for Piper; `installLooseFiles()` (byte-weighted multi-file progress across `model.onnx` + `tokens.txt`) for MMS. Reuses the identical `HttpURLConnection` streaming-download pattern already proven in the STT fix — no new dependency (commons-compress was already added to `build.gradle.kts` by that fix).
+- **`tts/TtsManager.kt`** — `installVoice(languageCode, onProgress)` changed from an always-throwing stub to a real suspend function: resolves the language to a `TtsModelDescriptor`, delegates to `TtsModelManager.install()` inside `withContext(Dispatchers.IO)`. `speakText()`, `drain()`, `speakOne()`, audio-focus request/reset, and critical-interrupt/requeue logic were **not touched**.
+- **`viewmodel/ReceiverViewModel.kt`** — `installVoice()` signature updated to match the new suspend/progress-callback shape, forwarding directly to `TtsManager.installVoice()`.
+- **`ui/screens/ReceiverScreen.kt`** — wired the already-existing (Phase 10) `TtsStatusCard`'s `onInstallVoice` callback to actually call `receiver.installVoice()` inside a `rememberCoroutineScope()`-launched coroutine, tracking local `installing`/`installPercent` Compose state — a direct port of `ReceiverScreen.tsx`'s own local `handleInstallVoice` state (the source keeps this on the screen, not the controller, so it was kept there in Kotlin too).
+
+### Model/backend mapping (all 10 languages, unchanged from `config/TtsModels.kt`)
+
+| Language | Code | Backend | Source type | On-disk id |
+|---|---|---|---|---|
+| English | en-IN | Piper | Archive | vits-piper-en_US-lessac-medium |
+| Hindi | hi-IN | Piper | Archive | vits-piper-hi_IN-pratham-medium |
+| Malayalam | ml-IN | Piper | Archive | vits-piper-ml_IN-arjun-medium |
+| Gujarati | gu-IN | MMS VITS | Loose files | mms-guj |
+| Marathi | mr-IN | MMS VITS | Loose files | mms-mar |
+| Kannada | kn-IN | MMS VITS | Loose files | mms-kan |
+| Tamil | ta-IN | MMS VITS | Loose files | mms-tam |
+| Telugu | te-IN | MMS VITS | Loose files | mms-tel |
+| Odia | or-IN | MMS VITS | Loose files | mms-ory |
+| Bengali | bn-IN | MMS VITS | Loose files | mms-ben |
+
+No mapping changed — this table matches `config/TtsModels.kt` exactly, confirmed before any code was written.
+
+### Model installation/path status (before the fix, this device)
+
+Only `vits-piper-en_US-lessac-medium` (English) existed under `itantra-tts-models/`. All 9 Indic voices were absent. `TtsModelManager.resolvePath()` correctly returned `null` for each of them, and `TtsManager.speakOne()` correctly surfaced "Language model unavailable. Install the required language pack." — the existing error-reporting path was already correct; there was simply no way to act on it.
+
+### Device test results (all 10 languages, vivo V2055)
+
+Real HTTP downloads were triggered through the actual `installVoice()` code path (not manual side-loading) for 7 of the 9 Indic languages, exercising both source-type branches at least once each:
+
+| Language | Backend | Install path exercised live | Download result | Synthesis | Playback state |
+|---|---|---|---|---|---|
+| English | Piper (Archive) | Not re-triggered — already installed | n/a (regression check only) | PASS | `phase=speaking`, `error=null` |
+| Hindi | Piper (Archive) | No — side-loaded earlier as proof-of-concept, same Archive code path as Malayalam | n/a | PASS | `phase=speaking`, `error=null` |
+| Malayalam | Piper (Archive) | **Yes** | 67 MB `.tar.bz2` downloaded, extracted (`MODEL_CARD`, `espeak-ng-data/`, `.onnx`, `.onnx.json`, `tokens.txt`), archive deleted after extraction | PASS | `phase=speaking lang=ml-IN error=null` |
+| Gujarati | MMS (Files) | No — side-loaded earlier as proof-of-concept, same Files code path as Bengali/Marathi/etc. | n/a | PASS | `phase=speaking`, `error=null` |
+| Marathi | MMS (Files) | **Yes** | `model.onnx` (114 MB) + `tokens.txt` downloaded | PASS | `phase=speaking lang=mr-IN error=null` |
+| Kannada | MMS (Files) | **Yes** | `model.onnx` (114 MB) + `tokens.txt` downloaded | PASS | `phase=speaking lang=kn-IN error=null` |
+| Tamil | MMS (Files) | **Yes** | `model.onnx` (114 MB) + `tokens.txt` downloaded | PASS | `phase=speaking lang=ta-IN error=null` |
+| Telugu | MMS (Files) | **Yes** | `model.onnx` (114 MB) + `tokens.txt` downloaded | PASS | `phase=speaking lang=te-IN error=null` |
+| Odia | MMS (Files) | **Yes** | `model.onnx` (114 MB) + `tokens.txt` downloaded | PASS | `phase=speaking lang=or-IN error=null` |
+| Bengali | MMS (Files) | **Yes** | `model.onnx` (114 MB) + `tokens.txt` downloaded | PASS | `phase=speaking lang=bn-IN error=null` |
+
+Each PASS above was read directly off the live `TtsPlaybackState` (subscribed via `TtsManager.subscribe()`), showing the correct target-language text and `error=null` at the moment of `SPEAKING`, then returning cleanly to `idle` afterward — not inferred from "the code compiled."
+
+One transient failure was observed and is noted rather than hidden: the first Malayalam attempt failed with `ml-IN FAILED: timeout` after reaching 80% (a real-world network stall exceeding the 15s `HttpURLConnection` read timeout, not a code defect — confirmed by immediately retrying with the identical code and succeeding). A `mms-ben` (Bengali) directory appearing mid-session while only Malayalam had been tapped from this session's automation was investigated (per this session's established protocol for unexplained device activity) and confirmed benign: the user was independently tapping the same test buttons live on the device in parallel.
+
+Testing used a temporary, one-off diagnostic composable (`diagnostics/TempTtsTestProbe.kt`, wired briefly into `MainActivity.kt`) to call `TtsManager.installVoice()`/`speakText()` directly for each language, since by the time all 10 voices were size-verified there was no longer a natural "voice not installed" state left to trigger `TtsStatusCard`'s real button through an actual received packet. **Both files were deleted/reverted before this fix was committed** — no trace remains in the committed code. The underlying method called (`installVoice()`) is identical in both the probe and the real `ReceiverScreen.kt` → `TtsStatusCard` wiring; the wiring itself was not independently re-exercised via a live button tap for that reason, and this is called out explicitly rather than claimed as tested.
+
+### Files changed
+
+Modified:
+- `android-native/app/src/main/java/com/itantra/app/tts/TtsModelManager.kt` (added real `install()`)
+- `android-native/app/src/main/java/com/itantra/app/tts/TtsManager.kt` (`installVoice()` from stub to real suspend function)
+- `android-native/app/src/main/java/com/itantra/app/viewmodel/ReceiverViewModel.kt` (`installVoice()` signature updated)
+- `android-native/app/src/main/java/com/itantra/app/ui/screens/ReceiverScreen.kt` (wired `TtsStatusCard`'s install callback to the real flow)
+
+No new dependency (`commons-compress` was already present from the STT fix). No changes to `config/TtsModels.kt`'s mapping, `TtsEngine.kt`, `TtsQueue.kt`, STT, VAD, packet, or MockTransport code.
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** (39 actionable tasks, ~15-20s per iteration; final clean build after removing the temporary test probe also succeeded).
+
+### Languages that remain unverified
+
+None fully unverified. Two caveats, stated precisely:
+1. Hindi's and Gujarati's *download* code paths specifically were not re-triggered live this session (both voices were already present from an earlier manual side-load used to prove the engine code itself was correct) — but they use the exact same `installArchive()`/`installLooseFiles()` code already proven live for Malayalam (Archive) and the other 6 MMS languages (Files) respectively, with only the URL/id parameters differing.
+2. The real product-UI "INSTALL X PACK" button (`TtsStatusCard` in `ReceiverScreen.kt`) was not independently tapped end-to-end, because all 10 voices ended up installed on the device by the time this was reached, leaving no natural not-installed state to trigger it. The method it calls was verified directly instead.
+
+### Regression notes
+
+No STT/VAD/segmentation/packet/MockTransport/general-UI/real-networking code touched. No new TTS models, no mapping changes, no optimization, no UI redesign. `TtsEngine.kt`, `TtsQueue.kt`, priority/critical-interrupt/audio-focus/ducking logic in `TtsManager.kt` are byte-for-byte unchanged. `MIGRATION_AUDIT.md` confirmed untouched before staging. All temporary diagnostic scaffolding (`TempTtsTestProbe.kt` and its `MainActivity.kt` wiring) removed before commit.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |

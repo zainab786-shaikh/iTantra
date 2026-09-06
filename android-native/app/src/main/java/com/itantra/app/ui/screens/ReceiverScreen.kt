@@ -19,6 +19,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -36,6 +41,7 @@ import com.itantra.app.ui.components.TtsStatusCard
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppSizing
 import com.itantra.app.viewmodel.ReceiverViewModel
+import kotlinx.coroutines.launch
 
 /**
  * Direct port of src/screens/ReceiverScreen.tsx to Jetpack Compose. Mirrors
@@ -47,6 +53,13 @@ fun ReceiverScreen(receiver: ReceiverViewModel) {
     val messages by receiver.messages.collectAsState()
     val ttsState by receiver.ttsState.collectAsState()
     val connected by receiver.connected.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    // Direct port of ReceiverScreen.tsx's local `installing`/`installPercent`
+    // state - the source keeps this on the screen, not the controller, so
+    // it is mirrored here rather than added to ReceiverViewModel.
+    var installing by remember { mutableStateOf(false) }
+    var installPercent by remember { mutableIntStateOf(0) }
 
     val criticalActive = ttsState.isCritical &&
         (ttsState.phase == TtsPlaybackPhase.SPEAKING || ttsState.phase == TtsPlaybackPhase.LOADING_VOICE)
@@ -88,15 +101,24 @@ fun ReceiverScreen(receiver: ReceiverViewModel) {
             TtsStatusCard(
                 state = ttsState,
                 onInstallVoice = { languageCode ->
-                    try {
-                        receiver.installVoice(languageCode)
-                    } catch (e: Exception) {
-                        // Not implemented in this migration (no real networking) -
-                        // voice must be side-loaded. See ReceiverViewModel.installVoice().
+                    // Direct port of ReceiverScreen.tsx's handleInstallVoice():
+                    // set installing/percent, await the install, and swallow
+                    // failure here since TtsStatusCard already reflects it via
+                    // ttsState.error on the next spoken attempt.
+                    installing = true
+                    installPercent = 0
+                    scope.launch {
+                        try {
+                            receiver.installVoice(languageCode) { percent, _ -> installPercent = percent }
+                        } catch (e: Exception) {
+                            // Swallowed - see comment above.
+                        } finally {
+                            installing = false
+                        }
                     }
                 },
-                installing = false,
-                installPercent = 0,
+                installing = installing,
+                installPercent = installPercent,
             )
 
             ReceivedMessageLog(

@@ -10,6 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -69,17 +70,18 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
     }
 
     /**
-     * Not ported: the source's HTTP download/extraction path
-     * (TtsModelManager.install), per this migration's explicit
-     * no-real-networking scope. Voices must be side-loaded onto the device
-     * (see TtsModelManager.kt doc comment) — matching the same precedent
-     * set for STT model installation in Phase 2/5.
+     * Direct port of installVoice() in src/core/tts/TtsManager.ts: download
+     * and install the voice for [languageCode], reporting progress the
+     * same way [speakText]'s caller expects (0-100 and a phase). Throws if
+     * no voice is registered for the language, matching the source's exact
+     * error message.
      */
-    fun installVoice(languageCode: String): Nothing {
-        throw UnsupportedOperationException(
-            "Voice installation is not implemented in this migration (no real networking) " +
-                "- side-load the voice directory for \"$languageCode\" instead."
-        )
+    suspend fun installVoice(languageCode: String, onProgress: (percent: Int, phase: String) -> Unit) {
+        val model = resolveTtsModelForLanguage(languageCode)
+            ?: throw IllegalArgumentException("No TTS voice registered for \"$languageCode\"")
+        withContext(Dispatchers.IO) {
+            models.install(model, onProgress)
+        }
     }
 
     /**

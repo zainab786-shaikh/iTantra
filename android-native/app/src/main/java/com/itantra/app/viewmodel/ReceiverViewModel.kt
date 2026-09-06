@@ -126,7 +126,10 @@ class ReceiverViewModel(
     /** Install state of the voice for [languageCode], for the UI's per-language download affordance. */
     fun voiceStatus(languageCode: String): TtsVoiceStatus? = ttsManager.voiceStatus(languageCode)
 
-    fun installVoice(languageCode: String): Nothing = ttsManager.installVoice(languageCode)
+    /** Download and install the voice for [languageCode]. Safe to call twice (matches the source). */
+    suspend fun installVoice(languageCode: String, onProgress: (percent: Int, phase: String) -> Unit) {
+        ttsManager.installVoice(languageCode, onProgress)
+    }
 
     fun dispose() {
         unsubscribeConnection()
