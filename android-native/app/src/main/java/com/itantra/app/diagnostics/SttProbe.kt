@@ -15,6 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.itantra.app.config.LANGUAGES
+import com.itantra.app.config.resolveModelForLanguage
 import com.itantra.app.stt.SttEngine
 import com.k2fsa.sherpa.onnx.WaveReader
 import kotlinx.coroutines.Dispatchers
@@ -30,29 +32,36 @@ import java.io.File
  * <filesDir>/itantra-models/<modelId>/ (model.int8.onnx, tokens.txt, and a
  * reference .wav — the exact side-load layout src/core/stt/ModelManager.ts
  * already uses).
+ *
+ * One target per language in config/Language.kt, resolved through
+ * config/SttModels.kt's resolveModelForLanguage() — the same mapping the
+ * app will use for real. This is what proves the mapping is wired
+ * correctly for all 10 languages, not just the ones actually pushed to a
+ * device and run: a wrong mapping would show the wrong model id/label
+ * here even before any model file exists on disk.
  */
 data class SttProbeTarget(
     val label: String,
     val modelId: String,
+    val numThreads: Int,
     val referenceWav: String,
     val expectedText: String,
 )
 
-val STT_PROBE_TARGETS = listOf(
+private const val ENGLISH_REFERENCE_TEXT =
+    "AFTER EARLY NIGHTFALL THE YELLOW LAMPS WOULD LIGHT UP HERE AND " +
+        "THERE THE SQUALID QUARTER OF THE BROTHELS"
+
+val STT_PROBE_TARGETS: List<SttProbeTarget> = LANGUAGES.mapNotNull { lang ->
+    val model = resolveModelForLanguage(lang.code) ?: return@mapNotNull null
     SttProbeTarget(
-        label = "ENGLISH · NeMo CTC Medium",
-        modelId = "sherpa-onnx-nemo-ctc-en-conformer-medium",
-        referenceWav = "0.wav",
-        expectedText = "AFTER EARLY NIGHTFALL THE YELLOW LAMPS WOULD LIGHT UP HERE AND " +
-            "THERE THE SQUALID QUARTER OF THE BROTHELS",
-    ),
-    SttProbeTarget(
-        label = "HINDI · AI4Bharat IndicConformer",
-        modelId = "indicconformer-hi",
-        referenceWav = "reference.wav",
-        expectedText = "",
-    ),
-)
+        label = "${lang.label.uppercase()} · ${model.label}",
+        modelId = model.id,
+        numThreads = model.numThreads,
+        referenceWav = if (lang.code == "en-IN") "0.wav" else "reference.wav",
+        expectedText = if (lang.code == "en-IN") ENGLISH_REFERENCE_TEXT else "",
+    )
+}
 
 private const val TAG = "SttProbe"
 
@@ -93,7 +102,7 @@ private fun runProbe(filesDir: File, target: SttProbeTarget): String {
     val wavFile = File(modelDir, target.referenceWav)
 
     if (!modelDir.exists()) {
-        return "NOT INSTALLED — ${modelDir.absolutePath} missing"
+        return "WIRED/CONFIGURED, RUNTIME VALIDATION PENDING — model not pushed to ${modelDir.absolutePath}"
     }
     if (!wavFile.exists()) {
         return "NO REFERENCE WAV — ${wavFile.absolutePath} missing"
@@ -102,7 +111,7 @@ private fun runProbe(filesDir: File, target: SttProbeTarget): String {
     val engine = SttEngine()
     return try {
         val loadStart = System.currentTimeMillis()
-        engine.load(modelDir.absolutePath)
+        engine.load(modelDir.absolutePath, numThreads = target.numThreads)
         val loadMs = System.currentTimeMillis() - loadStart
 
         val wave = WaveReader.readWave(wavFile.absolutePath)

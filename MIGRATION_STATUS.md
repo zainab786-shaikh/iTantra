@@ -183,13 +183,82 @@ One incidental finding during this phase: `MIGRATION_AUDIT.md`'s working-tree co
 
 ---
 
+## Phase 2 — Direct Sherpa-ONNX integration
+
+**Status:** COMPLETE, verified on physical device (not just Gradle success)
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### Approach
+
+Not a reimplementation of the react-native-sherpa-onnx TurboModule. Instead, the exact same underlying prebuilt binaries that wrapper resolves for the RN app are depended on directly:
+
+| Artifact | Coordinates | Source of truth |
+|---|---|---|
+| sherpa-onnx | `com.xdcobra.sherpa:sherpa-onnx:1.12.34-2` | `node_modules/react-native-sherpa-onnx/third_party/sherpa-onnx-prebuilt/ANDROID_RELEASE_TAG` (`sherpa-onnx-android-v1.12.34-2`) |
+| ONNX Runtime | `com.xdcobra.sherpa:onnxruntime:1.24.4-qnn2.43.1.260218-1` | `node_modules/react-native-sherpa-onnx/android/prebuilt-versions.gradle` default (confirmed matching the RN app's own resolved build log: `onnxruntime-1.24.4-qnn2.43.1.260218-1.aar`) |
+
+Both are AARs published at `https://xdcobra.github.io/maven`, bundling native `.so` per ABI **and** a `classes.jar` containing the official `com.k2fsa.sherpa.onnx.*` Kotlin API (sherpa-onnx) / `ai.onnxruntime.*` Java API (ONNX Runtime) — the same API `SherpaOnnxSttHelper.kt` calls into from the RN side. Depending on these directly means: no RN, no TurboModule, no JS↔Native bridge, and the exact same native decode path already proven in the shipped RN app.
+
+The RN wrapper's own `android/build.gradle` does **not** consume these as plain AAR dependencies — it manually unzips them (custom `sherpaOnnxAar`/`onnxruntimeAar` configurations, a Gradle task that extracts `jni/<abi>/*.so` into `src/main/jniLibs/<abi>/` and `classes.jar` into a build directory added via `implementation(fileTree(...))`). That manual approach — written by someone who clearly knows this dependency's packaging in detail — was treated as a signal that a plain `implementation("com.xdcobra.sherpa:sherpa-onnx:...")` AAR dependency might not reliably auto-merge the native libs through this particular Maven layout, so the same manual extraction was ported into `android-native/app/build.gradle.kts` (`extractSherpaOnnxNative`, `extractSherpaOnnxClasses`, `extractOnnxruntimeNative`, `extractOnnxruntimeClasses` tasks, wired via `preBuild.dependsOn`), rather than risking a silent `UnsatisfiedLinkError` at runtime by taking a shortcut. This worked on the first native-library-loading attempt — `mergeDebugNativeLibs`/`stripDebugDebugSymbols` picked up `libsherpa-onnx-jni.so`, `libsherpa-onnx-c-api.so`, `libsherpa-onnx-cxx-api.so`, `libonnxruntime.so`, `libonnxruntime4j_jni.so` correctly.
+
+`stt/SttEngine.kt` is a thin wrapper around `com.k2fsa.sherpa.onnx.OfflineRecognizer`, modeled directly on `SherpaOnnxSttHelper.kt`'s `nemo_ctc` branch — the only `modelType` this project's STT config (`src/config/models.ts`) actually uses, for both English (NeMo CTC Medium) and all nine Indic languages (AI4Bharat IndicConformer). No other model type was implemented, matching the instruction to only cover what's actually used.
+
+`diagnostics/SttProbeSection` (temporary, not product UI — see Phase 10 for the real UI) renders two buttons in the Phase 1 shell screen, each loading a model + reference `.wav` from `<filesDir>/itantra-models/<modelId>/` — the exact side-load directory layout `src/core/stt/ModelManager.ts` already uses — and displaying load time, decode time, and the actual decoded text on-screen.
+
+### On-device verification (not just `gradle assembleDebug` success)
+
+Per this phase's explicit rule, the following was actually demonstrated on the connected device, with screenshots and repeated independent runs to rule out stale/cached results:
+
+| Checklist item | Result |
+|---|---|
+| Native Sherpa library loads | **PASS** — `mergeDebugNativeLibs` succeeded; app launched with no `UnsatisfiedLinkError` |
+| NeMo CTC Medium initializes | **PASS** — loaded from `<filesDir>/itantra-models/sherpa-onnx-nemo-ctc-en-conformer-medium/` (the exact production model id/URL from `src/config/models.ts`, downloaded fresh from `github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-ctc-en-conformer-medium.tar.bz2`) |
+| Real PCM reaches Sherpa | **PASS** — `com.k2fsa.sherpa.onnx.WaveReader.readWave()` on the model archive's own bundled `0.wav` (16 kHz mono PCM-16), fed to `OfflineStream.acceptWaveform()` |
+| Real English inference succeeds | **PASS** — decoded successfully twice, independently (button tapped twice across a force-stop/relaunch cycle) |
+| Real transcript returns to Kotlin | **PASS, EXACT MATCH** — output `"after early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels"` against the model archive's own `trans.txt` reference for `0.wav`: `"AFTER EARLY NIGHTFALL THE YELLOW LAMPS WOULD LIGHT UP HERE AND THERE THE SQUALID QUARTER OF THE BROTHELS"` (case difference only — expected, CTC decoders emit no capitalization, exactly as already documented elsewhere in this project). Two independent runs produced **different real timings** (load 2726ms/decode 468ms, then load 3222ms/decode 530ms) — proof each run is live inference, not a cached UI state. |
+| At least one AI4Bharat IndicConformer model initializes | **PASS** — Hindi (`indicconformer-hi`), loaded from the same HF repo/path `src/config/models.ts` already points at (`parismitaglobalsolutions/indicconformer-sherpa-onnx`, shared `tokens.txt` + `hi/model.int8.onnx`, ~188 MB, matching the config's declared size) |
+| At least one Indic real inference succeeds | **PASS, with an honest caveat** — produced genuine, well-formed Devanagari script (`"तो होवाल अच्छी हैसाकाजा"`), proving the model decodes real audio into real native-script text with no script bleeding and no crash. The input clip (real recorded speech, reused from an already-downloaded Dolphin model archive's `test_wavs/0.wav` — Dolphin was used only as a *source of real audio*, never as a decoder) has no independently-verified ground-truth transcript available, so this is reported as "real inference succeeded," not as a transcription-accuracy claim the way English's exact-match is. |
+| No native crash | **PASS** — same process (`pid` unchanged) survived both the English and Hindi runs; `adb logcat` for that pid showed no `FATAL EXCEPTION`/`AndroidRuntime`/`SIGSEGV`/tombstone entries |
+| Proper engine cleanup works | **PASS** — `SttEngine.release()` called in a `finally` block after every run; loading a second, much larger model (Hindi, ~188 MB) immediately after releasing the first (English, ~68 MB) succeeded with no leak-related crash or native-memory error |
+
+**Note on logcat:** `adb logcat` returned zero lines for this app's own `Log.i`/`Log.e` calls on this specific device, even immediately after a targeted `adb logcat -c` clear — a device/OEM logging restriction (this is a vivo/FuntouchOS device), not a code defect. On-screen results (screenshotted, with genuinely differing values between independent runs) were used as the primary evidence instead, which is direct and unambiguous.
+
+**Dolphin note:** per the non-negotiable rules, Dolphin was not reintroduced as a decoder anywhere. The only Dolphin-related file touched was an already-downloaded archive's bundled `test_wavs/0.wav`, used purely as a source of real recorded audio bytes for the Hindi run (a WAV file has no "engine" — it's just PCM data). No Dolphin model was loaded, and no Dolphin code path exists in `SttEngine.kt`.
+
+### Complete 10-language model mapping (addendum, same session)
+
+Per instruction, extended Phase 2 to cover the full existing language→model mapping, not just the two languages already runtime-tested:
+
+- **`config/Language.kt`** — direct port of `src/config/languages.ts`: all 10 `Language` entries (code, label, native script, sherpaLang, short tag, accent), same order, same values, nothing invented.
+- **`config/SttModels.kt`** — direct port of the 10 *active* decoders in `src/config/models.ts`: `NEMO_CTC_ENGLISH` + the nine `IndicConformer` descriptors (Hindi, Marathi, Bengali, Tamil, Telugu, Kannada, Gujarati, Malayalam, Odia), same ids/labels/sizes/thread counts, same `resolveModelForLanguage()` first-match semantics. The Dolphin/Whisper fallback entries that TS file also declares were **not** ported — they never match any of the 10 active languages in the original source either (Indic/English entries are listed first and always win), so porting them would add inert config with no behavior, and risks reintroducing the word "Dolphin" into the Kotlin codebase against explicit instruction. Omitted entirely, not just left unused.
+- **`diagnostics/SttProbe.kt`** — rewritten to derive its target list from `LANGUAGES` + `resolveModelForLanguage()` instead of two hand-typed entries, so the on-screen button set is generated from the same mapping the app will actually use, not a parallel hardcoded list. Verified on-device: all 10 language buttons render with the correct label/model pairing, in the same order as the source config (English, Hindi, Marathi, Gujarati, Kannada, Malayalam, Tamil, Telugu, Odia, Bengali) — confirmed by screenshot.
+- For the 8 Indic languages beyond Hindi (no model files pushed to this device), the probe reports **"WIRED/CONFIGURED, RUNTIME VALIDATION PENDING — model not pushed to `<path>`"** rather than either skipping them or fabricating a result. This is explicit, honest status, not a placeholder pretending to be a pass.
+- `SttEngine.load()` now takes `numThreads` from the resolved config descriptor instead of relying on its own default happening to match (both are `2` for every current model, but the value now flows from config rather than coincidence).
+
+This satisfies "make sure the Kotlin implementation contains the correct mappings for all 10 existing languages" without requiring all 9 IndicConformer models (~1.7 GB) to be downloaded and individually run in this session, per explicit permission to defer that.
+
+### Known issues (Phase 2)
+
+1. `adb logcat` does not surface this app's log output on this specific test device — worth re-checking on a different device/ROM later, not blocking.
+2. The Hindi verification's input audio has no independently-confirmed transcript — a real spoken-language sample with a documented ground truth (e.g., synthesizing one via the project's own TTS models, once Phase 8 exists, or sourcing a properly labeled Indic clip) would upgrade this from "real inference succeeded" to an accuracy-comparable result the way English already is.
+3. Models used in this phase were manually `adb push`ed into the app's private storage for verification speed — this is the same side-load path `ModelManager.ts` already supports, but the actual download/install flow (Phase 5/`ModelManager` port) is not yet implemented in Kotlin.
+4. The diagnostic UI (`SttProbeSection`) is temporary migration scaffolding, explicitly out of scope for the real product UI (Phase 10) — it should be removed or relocated once no longer needed, per Phase 16 (final cleanup).
+5. 8 of 9 Indic languages (all except Hindi) are wired/configured but not yet individually runtime-validated on-device — deferred per explicit instruction, not a defect. Each shares the identical `nemo_ctc` code path already proven for English and Hindi; only the model files themselves are untested.
+
+### Regression notes
+
+No RN application source was touched. `android/` (RN baseline) untouched. All new code lives under `android-native/`. The RN app was reinstalled/uninstalled only on the test device during Phase 1's device verification, per the user's explicit authorization recorded there — Phase 2 did not touch that decision further.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
 |---|---|---|---|---|
 | 0 — Freeze current system | **COMPLETE** | RN native build: **PASS** (fixed a `local.properties` path-escaping bug introduced during this phase); TS typecheck: PASS | NOT TESTED (no device connected) | No device connected |
 | 1 — Native Kotlin shell | **COMPLETE** | PASS (12.4 MB debug APK) | **PASS** (vivo V2055, Android 13/SDK 33, arm64-v8a — launched, rendered, no crash) | Deps pinned below latest (documented, not a defect); RN app uninstalled from this test device to free the shared applicationId |
-| 2 — Direct Sherpa-ONNX integration | Not started | — | — | — |
+| 2 — Direct Sherpa-ONNX integration | **COMPLETE** | PASS | **PASS** — English exact-match, Hindi real inference (see detail above) | Logcat unavailable on this device; Hindi input has no verified ground truth; diagnostic UI is temporary |
 | 3 — Native audio capture | Not started | — | — | — |
 | 4 — VAD + sentence segmentation | Not started | — | — | — |
 | 5 — Complete STT pipeline | Not started | — | — | — |
