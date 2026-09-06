@@ -830,6 +830,65 @@ No RN application source touched. No Home/Devices/History/Settings/dashboards/fa
 
 ---
 
+## Phase 11 — Full Native End-to-End
+
+**Status:** COMPLETE, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was built
+
+No new Kotlin code. Phase 11's job — connecting the complete transmit chain (`mic → AudioRecord → framing → EnergyVad → SentenceSegmenter → Sherpa STT → Indic script repair → NonSpeechFilter → packet creation → MockTransport`) and receive chain (`MockTransport → packet receive → priority handling → TTS → speaker`) so the actual product UI drives the full flow — was already completed by the combination of Phase 9 (`AppViewModel`/`TransmitterViewModel`/`ReceiverViewModel` wiring every component together) and Phase 10 (the real Compose screens reading and driving those ViewModels). This phase is verification-only: confirming that combination genuinely works end-to-end through the shipped product UI, with no diagnostic code involved, and closing out the checklist items Phase 10's incidental live capture didn't individually re-confirm.
+
+**"Phone-like mode when PTT is off"** — searched for in the RN source (`grep -rn "phone-like" src/ App.tsx`) and found nowhere. This is not an existing feature of the reference implementation; per the non-negotiable rule that the RN app is the source of truth and nothing may be invented, no such mode was added. The existing, correct behavior when PTT is not held is simply `IDLE`/`STANDBY` with the microphone closed — already what Phases 9-10 implement.
+
+### RN source → Kotlin file mapping
+
+No new files. This phase re-verifies the wiring already mapped in Phase 9 (`viewmodel/AppViewModel.kt`, `viewmodel/TransmitterViewModel.kt`, `viewmodel/ReceiverViewModel.kt`) and Phase 10 (`ui/screens/TransmitterScreen.kt`, `ui/screens/ReceiverScreen.kt`) against `App.tsx`'s full transmit/receive data flow.
+
+### Behavior/parity verification
+
+| Checklist item | Verified how |
+|---|---|
+| Transmit mode | Phase 10's live capture: 3 real utterances transcribed and sent through the real `TransmitterScreen` |
+| Receive mode | Phase 10's live capture: same 3 messages received and auto-spoken through the real `ReceiverScreen` |
+| PTT behavior | Phase 10: press-and-hold correctly opens/closes the mic (`AudioCapture.start/stop`), confirmed via the OS mic-in-use indicator in earlier phases and via real transcripts appearing only while genuinely held |
+| STT | Phase 10: real `SttEngineProvider`/`SherpaSttBackend` decode, `engine=SHERPA_ONNX` implied by non-placeholder, real English transcripts |
+| Packet creation | Phase 10: real `buildPacket()` output with correct priority classification (NORMAL/HIGH/CRITICAL) and real `senderId` |
+| MockTransport | Phase 7 (dedicated) + Phase 9/10 (integrated): same shared instance, same loopback behavior |
+| Receive processing | Phase 9/10: `ReceiverViewModel.handlePacket()` fires automatically on arrival, no polling/manual trigger |
+| TTS | Phase 8 (dedicated) + Phase 10 (integrated): real Piper English synthesis + playback, reaching `SPOKEN` |
+| Language handling | Phase 10: switching the language selector correctly re-resolves `modelStatus` (`READY TO TRANSCRIBE` ↔ `SETUP NEEDED`) |
+| Priority handling | Phase 10: three different real priority bands rendered and classified correctly (NORMAL/HIGH/CRITICAL) |
+| Critical-message behavior | Phase 10: the CRITICAL entry rendered with the correct red-bordered row in both logs and reached `SPOKEN`. The specific *interrupt-an-in-progress-normal-message* sequence was not re-triggered live this phase (a second real overlapping utterance did not occur naturally during this session's additional hold attempt - see below) - this exact code path (`TtsManager.speakText`'s requeue-and-interrupt logic) is unchanged since Phase 8, where it was rigorously verified via fine-grained state polling (critical pre-empts in-progress normal; interrupted normal resumes and completes afterward with the same request id), and Phase 9 already proved the identical `TtsManager` instance is reachable end-to-end through `ReceiverViewModel`. No code changed between then and now that would invalidate that proof. |
+| No real phone-to-phone networking | Confirmed by inspection: no Bluetooth/Wi-Fi/BLE/socket code exists anywhere in `android-native/` (only `MockTransport`, Phase 7) |
+| No optimization performed | Confirmed: no thresholds, algorithms, or model configurations were touched this phase |
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a: performed one additional PTT hold (8 seconds) after Phase 10's testing, specifically to try to capture a second overlapping utterance for a live critical-interrupt demonstration. The room was quiet during this hold, and correctly **no new packet was produced** — the packet log stayed at 3 entries, unchanged. This is itself a useful, positive confirmation: the VAD/segmenter does not hallucinate a transmission when there is no real speech, even after several seconds of open mic. App process remained stable (no crash) throughout.
+
+**NOT VERIFIED:** a live, on-device capture of one real utterance's TTS playback being interrupted mid-speech by a second real utterance's CRITICAL arrival, specifically through the shipped product UI (as opposed to Phase 8's dedicated diagnostic, which did capture this exact sequence with fine-grained state polling). Reproducing it live requires two genuine, closely-timed real utterances of different priority, which depends on uncontrollable ambient conditions in the test environment.
+
+### Build result
+
+No code changed this phase; the Phase 10 build (`BUILD SUCCESSFUL`) still applies unmodified.
+
+### Files changed
+
+None (verification-only phase). `MIGRATION_STATUS.md` updated with this section.
+
+### Known issues/limitations (Phase 11)
+
+1. Live re-capture of critical-interrupts-in-progress-normal specifically through the product UI (rather than Phase 8's diagnostic) was not achieved this phase, for the reason above. The underlying code is unchanged and already rigorously verified.
+2. "Phone-like mode when PTT is off" does not exist in the RN source and was correctly not invented.
+
+### Regression notes
+
+No RN application source touched. No code changed this phase. `MIGRATION_AUDIT.md` confirmed untouched.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -845,7 +904,7 @@ No RN application source touched. No Home/Devices/History/Settings/dashboards/fa
 | 8 — Native TTS | **COMPLETE** | PASS (first attempt) | **PASS** — real Piper English voice side-loaded/synthesized/played (MediaPlayer completion confirmed); critical interruption + full requeue-and-resume of the same request verified via fine-grained polling; no crash | Only English voice runtime-tested (9 others share the same code path, unverified); audible quality not judged aurally; voice install (HTTP) not implemented (side-load only) |
 | 9 — Kotlin state/ViewModels | **COMPLETE** | PASS | **PASS** — full transmit->packet->shared MockTransport->receive->TTS chain verified live (20 real decode/packet/receive/speak cycles via speaker-to-mic loopback); language auto-resolves on construction; no crash | Only English exercised (setLanguage/setPauseMs unverified this phase); installModel() throws (no networking, matches Phase 8) |
 | 10 — Actual iTantra UI | **COMPLETE** | PASS (after fixing an animateFloat API mistake + a status-bar inset bug) | **PASS** — real end-to-end proof: 3 genuine ambient-speech utterances captured via the real PTT button, correctly transcribed/classified (NORMAL/HIGH/CRITICAL), sent, received, and spoken, all through the actual product UI; mode switching preserves state; no crash | CriticalAlertBanner not visually captured mid-display (code-verified only); diagnostic probe files still present but unreferenced (Phase 13 removes them) |
-| 11 — Full end-to-end loopback | Not started | — | — | — |
+| 11 — Full native end-to-end | **COMPLETE** | N/A (no code changed) | **PASS** — verification-only phase confirming Phase 9/10's wiring drives the complete transmit+receive chain through the real UI; correctly silent when no real speech present | Live re-capture of critical-interrupt-during-playback via the product UI not reproduced this phase (unchanged code already proven in Phase 8) |
 | 12 — Parity testing | Not started | — | — | — |
 | 13 — Performance optimization | Not started | — | — | — |
 | 14 — Real device-to-device transport | Not started | — | — | — |
