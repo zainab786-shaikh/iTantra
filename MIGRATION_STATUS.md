@@ -637,6 +637,90 @@ No RN application source touched. No new/changed TTS models. No volume forced to
 
 ---
 
+## Phase 9 — Kotlin State/ViewModels
+
+**Status:** COMPLETE, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was built
+
+Direct port of `src/hooks/useTransmitterController.ts`, `src/hooks/useReceiverController.ts`, and the shared-transport ownership pattern in `App.tsx`, wiring together every component ported in Phases 2-8 for the first time as one connected pipeline:
+
+- **`core/TranscriptionTypes.kt`** — direct port of `TransmitterStatus`, `TranscriptionResult`, `TranscriptionState` (from `src/core/types.ts`) and `LogEntry` (from `useTransmitterController.ts`). Same fields, same enum values (`IDLE`/`INITIALIZING`/`LISTENING`/`SPEAKING`/`TRANSCRIBING`/`ERROR`).
+- **`viewmodel/TransmitterViewModel.kt`** — direct port of `useTransmitterController.ts`'s state and lifecycle: owns `EnergyVad` (4), `SentenceSegmenter` (4), `AudioCapture` (3), `SttEngineProvider` (5), and calls `buildPacket`/`DeviceId.getSenderId` (6) and `transport.sendPacket` (7). React state/refs become `MutableStateFlow` fields; the `useEffect` keyed on `language` (which reports model install state and warms the decoder) becomes an `init` block plus the same logic re-run from `setLanguage()`. `startPtt()`/`stopPtt()`/`handleSegment()`/`handleFrame()` reproduce the source's exact sequencing, including: resetting VAD/segmenter before requesting the mic; not awaiting the decoder warm-up (fire-and-forget, so the first press is not sluggish); preserving a `TRANSCRIBING` status across `stopPtt()` if a decode is already in flight; discarding empty/non-speech text via `NonSpeechFilter` before building a packet; capping the log at `maxLogEntries` (40). The source's `SyntheticAudioSource`/web branches are not ported, per Phase 3's already-established reasoning (a native app always has a real `AudioRecord`), and permission is checked-not-requested here, matching `AudioCapture.kt`'s documented split of responsibility (requesting needs an Activity - Phase 10's job).
+- **`viewmodel/ReceiverViewModel.kt`** — direct port of `useReceiverController.ts`: subscribes to `transport.onPacketReceived`/`onConnectionChange`, hands each arriving packet to a `TtsManager` (8), and maintains the same `correlationRef`-based mapping from a TTS request id back to its history row (including the synthetic `"<packetId>::replay::<timestamp>"` id `replay()` uses), the same `RECEIVED` -> `QUEUED` -> `SPEAKING` -> `SPOKEN`/`ERROR` state transitions driven off `TtsManager`'s state stream, and the same 60-entry history cap.
+- **`viewmodel/AppViewModel.kt`** — direct port of `App.tsx`'s root-component ownership: one `MockTransport` shared by both controllers, both constructed unconditionally and living for the app's lifetime regardless of which screen is shown - the exact constraint `App.tsx`'s own comment documents (a controller living inside a conditionally-mounted screen would lose its `transport.onPacketReceived` subscription the moment the operator switches screens). This is the one class in this phase that is a real `androidx.lifecycle.ViewModel` (an `AndroidViewModel`, scoped to the hosting Activity via Compose's `viewModel()`); `TransmitterViewModel`/`ReceiverViewModel` are plain Kotlin classes with a public `dispose()`, manually constructed and lifecycle-managed by `AppViewModel.onCleared()` - they are not obtained individually via `ViewModelProvider`, so they cannot themselves override the protected `ViewModel.onCleared()`.
+- **`diagnostics/ViewModelProbe.kt`** — new, temporary (not product UI): obtains the shared `AppViewModel` via Compose's `viewModel()`, exposes "START PTT"/"STOP PTT" and the same "PLAY REFERENCE CLIP" speaker-to-mic loopback technique Phases 4/5/9 used, and displays both the transmitter's and the receiver's live state side by side - proving the wiring with no diagnostic-code glue of its own (the glue is entirely inside the two ViewModels).
+- `MainActivity.kt` — wired `ViewModelProbeSection()` in after the Phase 8 TTS probe.
+- `app/build.gradle.kts` — added `androidx.lifecycle:lifecycle-viewmodel-ktx` and `lifecycle-viewmodel-compose` (needed for `AppViewModel`/`viewModel()`).
+
+**Not ported / explicitly deferred:** `installModel()`/`installVoice()`-style HTTP download affordances - both `TransmitterViewModel.installModel()` and (already, from Phase 8) `ReceiverViewModel`'s forwarded `installVoice()` throw `UnsupportedOperationException`, documenting that this migration is side-load-only (no real networking), consistent with every prior phase.
+
+### RN source → Kotlin file mapping
+
+| RN source | Kotlin file |
+|---|---|
+| `src/core/types.ts` (`TransmitterStatus`, `TranscriptionResult`, `TranscriptionState`) | `core/TranscriptionTypes.kt` |
+| `src/hooks/useTransmitterController.ts` (incl. `LogEntry`) | `viewmodel/TransmitterViewModel.kt` |
+| `src/hooks/useReceiverController.ts` | `viewmodel/ReceiverViewModel.kt` |
+| `App.tsx` (shared-transport root ownership) | `viewmodel/AppViewModel.kt` |
+| (none — new diagnostic) | `diagnostics/ViewModelProbe.kt` |
+
+### Behavior/parity verification
+
+| Scenario | RN source behavior | Kotlin result |
+|---|---|---|
+| Language resolves/warms on construction | `useEffect` keyed on `language` runs on mount, resolving the model and calling `sttRef.current!.prepare(language)` | **Matched** — on first composition, before any button was tapped, state already showed `engine=SHERPA_ONNX` (the side-loaded English model resolved and prepared automatically) |
+| startPtt -> real capture -> real segment -> real decode | mic opens, VAD/segmenter run, a completed segment is decoded, non-empty text becomes a packet | **Matched** — real speaker-to-mic loopback of the Phase 2 reference clip produced the same real transcript family already established in Phase 2/5 ("after early night(fall) all/the yellow la(mp)s...") |
+| Packet built with correct priority + real senderId | `buildPacket()` classifies priority and stamps the real device sender id | **Matched** — log showed `[NORMAL]` (correct - no CRITICAL/HIGH/MEDIUM keyword in this transcript) with `delivered=true` |
+| Packet reaches the receiver via the *shared* transport | `App.tsx`'s single `MockTransport` instance loops a sent packet back to its own receive listeners, and the receiver (a separate hook/controller) is subscribed to the same instance | **Matched** — the receiver's `received` count and latest message text exactly matched the transmitter's latest log entry, with no diagnostic code copying data between them - only the shared `Transport` object |
+| Receiver hands the packet to TTS automatically | `handlePacket` calls `ttsManager.speakText(...)` unconditionally for every arrival | **Matched** — `ttsPhase=speaking` with `ttsText` identical to the received packet's text, with no button pressed on the receiver side - it started speaking on its own the moment the packet arrived |
+| stopPtt leaves state consistent | mic closes, `segmenter.flush()` finalizes any in-flight audio, `level` resets to 0 | **Matched** — no crash or stuck state after "STOP PTT"; process remained stable (confirmed via `pidof`) |
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a:
+- Built, installed, launched; scrolled to "PHASE 9 · VIEWMODEL WIRING PROBE". Before any interaction, `engine=SHERPA_ONNX` was already visible, proving the `AppViewModel`/`TransmitterViewModel` construction and its `init`-block language resolution ran automatically.
+- Tapped "START PTT" (mic opened; `status=SPEAKING` from an ambient-noise transient, the same expected behavior documented in Phase 4 - not a bug).
+- Tapped "PLAY REFERENCE CLIP" repeatedly across the session (the same Phase 2 English reference clip played via speaker-to-mic loopback); each pass produced a new real decoded transcript, a new packet, and immediate real playback on the receiver side.
+- Final captured state (screenshotted for unambiguous evidence, since `uiautomator dump`'s accessibility tree inconsistently omitted a couple of merged text nodes in this run - a dump-tool artifact, not an app defect): `log entries=20 latest=[NORMAL] "after early night all the yellow las would lay up here and there the slid quarter of the behaviour" delivered=true` on the transmitter side, and `received=20 latest=[speaking] "after early night all the yellow las would lay up here and there the slid quarter of the behaviour"` on the receiver side - the identical text, delivered through the shared `MockTransport`, now actively speaking via the Phase 8 `TtsManager`.
+- Tapped "STOP PTT"; app process confirmed still running (`pidof com.itantra.app` returned a stable pid) with no crash through the entire sequence.
+
+**NOT VERIFIED:** multi-language switching (`setLanguage()`) was not exercised in this phase's device test - only the default English language was used, since that is the only side-loaded model on this device. The `setLanguage()` code path itself is a direct, small port of the source's `useEffect`/`sttRef.prepare()` call already proven per-language in Phase 2's mapping verification, so this is a coverage gap, not a suspected discrepancy. Pause-preset switching (`setPauseMs()`) was likewise not device-tested this phase.
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** (two builds this phase: one immediately after writing the ViewModels, ~51s with more tasks re-executed than usual because `AndroidManifest`/resource merging re-ran; a second, ~16s incremental build after wiring the diagnostic probe in).
+
+### Files changed
+
+New:
+- `android-native/app/src/main/java/com/itantra/app/core/TranscriptionTypes.kt`
+- `android-native/app/src/main/java/com/itantra/app/viewmodel/TransmitterViewModel.kt`
+- `android-native/app/src/main/java/com/itantra/app/viewmodel/ReceiverViewModel.kt`
+- `android-native/app/src/main/java/com/itantra/app/viewmodel/AppViewModel.kt`
+- `android-native/app/src/main/java/com/itantra/app/diagnostics/ViewModelProbe.kt`
+
+Modified:
+- `android-native/app/build.gradle.kts` (added `lifecycle-viewmodel-ktx`, `lifecycle-viewmodel-compose`)
+- `android-native/app/src/main/java/com/itantra/app/MainActivity.kt` (wired `ViewModelProbeSection()`)
+- `MIGRATION_STATUS.md` (this section)
+
+### Known issues/limitations (Phase 9)
+
+1. Only the default English language was exercised on-device this phase (single side-loaded model); `setLanguage()`/multi-language switching and `setPauseMs()` are unverified in this specific wiring, though both are thin, direct ports of already-proven source logic.
+2. `uiautomator dump`'s accessibility-tree text extraction inconsistently omitted 2 of the probe's `Text` composables in one run (likely a semantics-merging quirk in how Compose reports deeply nested/wrapped text nodes to the accessibility tree) - worked around with a direct screenshot for unambiguous verification; not an application defect.
+3. `installModel()` throws `UnsupportedOperationException` (no networking) - matches the Phase 8 precedent, not a regression.
+4. Diagnostic UI (`ViewModelProbeSection`) is temporary scaffolding, same as Phases 2-8 - to be removed/relocated in the cleanup phase. Phase 10 will replace it with the real product UI built directly against `TransmitterViewModel`/`ReceiverViewModel`.
+5. `TransmitterViewModel`/`ReceiverViewModel` are plain Kotlin classes rather than `androidx.lifecycle.ViewModel` subclasses themselves (only `AppViewModel` is) - a deliberate, documented architectural choice (see file doc comments) since they are manually constructed and owned by `AppViewModel`, not individually resolved via `ViewModelProvider`.
+
+### Regression notes
+
+No RN application source touched. No new state, screens, or functionality invented beyond what was required to connect the already-ported components. No thresholds/algorithms/models changed. `MIGRATION_AUDIT.md` confirmed untouched before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -650,7 +734,7 @@ No RN application source touched. No new/changed TTS models. No volume forced to
 | 6 — Packet layer | **COMPLETE** | PASS | **PASS** — real senderId (ITX-98711904) derived from device ANDROID_ID; 5 sample packets, all classified into correct priority bands per verbatim keyword lists; no crash | Only 5/~90 keywords exercised on-device (rest verified by text comparison); diagnostic UI temporary; no transport wiring yet (Phase 7) |
 | 7 — MockTransport + receive pipeline | **COMPLETE** | PASS | **PASS** — connected send->receive loopback verified (matching id/priority); disconnected send correctly failed with no sent/received side effects; no crash | Probabilistic failureRate>0 path not exercised (same code as tested branch); receive state stays RECEIVED only until TTS wiring (Phase 8/9); diagnostic UI temporary |
 | 8 — Native TTS | **COMPLETE** | PASS (first attempt) | **PASS** — real Piper English voice side-loaded/synthesized/played (MediaPlayer completion confirmed); critical interruption + full requeue-and-resume of the same request verified via fine-grained polling; no crash | Only English voice runtime-tested (9 others share the same code path, unverified); audible quality not judged aurally; voice install (HTTP) not implemented (side-load only) |
-| 9 — ViewModel/state architecture | Not started | — | — | — |
+| 9 — Kotlin state/ViewModels | **COMPLETE** | PASS | **PASS** — full transmit->packet->shared MockTransport->receive->TTS chain verified live (20 real decode/packet/receive/speak cycles via speaker-to-mic loopback); language auto-resolves on construction; no crash | Only English exercised (setLanguage/setPauseMs unverified this phase); installModel() throws (no networking, matches Phase 8) |
 | 10 — Compose UI | Not started | — | — | — |
 | 11 — Full end-to-end loopback | Not started | — | — | — |
 | 12 — Parity testing | Not started | — | — | — |

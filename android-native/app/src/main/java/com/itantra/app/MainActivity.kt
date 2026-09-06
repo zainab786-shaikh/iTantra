@@ -33,6 +33,7 @@ import com.itantra.app.diagnostics.SttProbeSection
 import com.itantra.app.diagnostics.TransportProbeSection
 import com.itantra.app.diagnostics.TtsProbeSection
 import com.itantra.app.diagnostics.VadSegmenterProbeSection
+import com.itantra.app.diagnostics.ViewModelProbeSection
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppSizing
 import com.itantra.app.ui.theme.ITantraTheme
@@ -113,6 +114,10 @@ private fun ShellScreen(
             PacketProbeSection()
             TransportProbeSection()
             TtsProbeSection()
+            ViewModelProbeSection(
+                hasPermission = audioPermissionGranted,
+                onRequestPermission = onRequestAudioPermission,
+            )
         }
     }
 }
