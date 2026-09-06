@@ -33,6 +33,7 @@ class ReceiverViewModel(
     private val transport: Transport,
 ) {
     private val appContext = context.applicationContext
+    val transportName: String = transport.name
     private val ttsManager = TtsManager(appContext, File(appContext.filesDir, "itantra-tts-models"))
 
     /** Maps a TtsManager request id back to the history row it belongs to - identity for normal messages, a synthetic id for replays. */

@@ -5,8 +5,11 @@ import com.itantra.app.audio.AudioCapture
 import com.itantra.app.audio.PcmMath
 import com.itantra.app.config.DEFAULT_LANGUAGE
 import com.itantra.app.config.DEFAULT_VAD_CONFIG
+import com.itantra.app.config.NEMO_CTC_ENGLISH
+import com.itantra.app.config.SttModelDescriptor
 import com.itantra.app.config.VadConfig
 import com.itantra.app.config.findLanguage
+import com.itantra.app.config.resolveModelForLanguage
 import com.itantra.app.core.INITIAL_TRANSCRIPTION_STATE
 import com.itantra.app.core.LogEntry
 import com.itantra.app.core.TranscriptionResult
@@ -17,6 +20,8 @@ import com.itantra.app.packet.buildPacket
 import com.itantra.app.stt.NonSpeechFilter
 import com.itantra.app.stt.SttEngineKind
 import com.itantra.app.stt.SttEngineProvider
+import com.itantra.app.stt.SttModelStatus
+import com.itantra.app.stt.checkSttModelStatus
 import com.itantra.app.transport.Transport
 import com.itantra.app.vad.AudioSegment
 import com.itantra.app.vad.EnergyVad
@@ -53,6 +58,7 @@ class TransmitterViewModel(
     private val transport: Transport,
     maxLogEntries: Int = 40,
 ) {
+    val transportName: String = transport.name
     private val appContext = context.applicationContext
     private val modelsRootDir = File(appContext.filesDir, "itantra-models")
     private val maxLog = maxLogEntries
@@ -109,6 +115,13 @@ class TransmitterViewModel(
     private val _level = MutableStateFlow(0f)
     val level: StateFlow<Float> = _level.asStateFlow()
 
+    private val _modelStatus = MutableStateFlow<SttModelStatus>(SttModelStatus.NotInstalled)
+    val modelStatus: StateFlow<SttModelStatus> = _modelStatus.asStateFlow()
+
+    /** The decoder serving the currently selected language. Mirrors `activeModel` in useTransmitterController.ts. */
+    val activeModel: SttModelDescriptor
+        get() = resolveModelForLanguage(_language.value) ?: NEMO_CTC_ENGLISH
+
     private val unsubscribeConnection = transport.onConnectionChange { _connected.value = it }
 
     init {
@@ -142,6 +155,8 @@ class TransmitterViewModel(
     }
 
     private suspend fun resolveLanguageModel(languageCode: String) {
+        val descriptor = resolveModelForLanguage(languageCode) ?: NEMO_CTC_ENGLISH
+        _modelStatus.value = checkSttModelStatus(modelsRootDir, descriptor)
         val status = sttProvider.prepare(languageCode)
         patch(engine = status.kind)
     }

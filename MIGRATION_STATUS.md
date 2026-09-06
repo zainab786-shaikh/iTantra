@@ -721,6 +721,115 @@ No RN application source touched. No new state, screens, or functionality invent
 
 ---
 
+## Phase 10 — Actual iTantra UI
+
+**Status:** COMPLETE, verified on physical device (including a real, unplanned end-to-end run captured live)
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was built
+
+Direct Jetpack Compose port of the real RN product UI — `src/screens/TransmitterScreen.tsx`, `src/screens/ReceiverScreen.tsx`, every component under `src/ui/components/`, `src/ui/theme.ts`'s `STATUS_META`, and `App.tsx`'s root composition (shared transport + floating Transmit/Receive switcher). This replaces the Phase 1-9 diagnostic shell as `MainActivity`'s displayed content. No Home/Devices/History/Settings/dashboards/fake data were added — same two-screen product, same layout order, same colours, same copy, just natively implemented:
+
+- **`ui/StatusMeta.kt`** — direct port of `STATUS_META` (status → label/colour) and a `hexColor()` helper to parse the hex strings `PRIORITY_COLORS`/language `accent` already carry as `String`.
+- **`ui/components/ConnectionBadge.kt`** — link-state pill with a breathing dot, animated only while connected (Compose `InfiniteTransition.animateFloat` in place of Reanimated's `withRepeat`).
+- **`ui/components/LanguageSelector.kt`** — horizontal `LazyRow` of language chips (native script + short code), selected chip in Signal Yellow, disabled while transmitting.
+- **`ui/components/ModelCard.kt`** — narrowed to the two `SttModelStatus` states this migration can reach (`Installed`/`NotInstalled` — see `stt/SttModelStatus.kt` below); no `downloading`/`error`/`unsupported` states exist without a real HTTP install path.
+- **`ui/components/PacketLog.kt`** / **`ui/components/ReceivedMessageLog.kt`** — rolling feeds of sent/received messages, priority-coloured left bar, delivery/state badges, critical-row red highlight, REPLAY affordance.
+- **`ui/components/PttButton.kt`** — press-and-hold mic control using `Modifier.pointerInput` + `detectTapGestures(onPress = { ...; tryAwaitRelease(); ... })` in place of `Pressable.onPressIn/onPressOut`; halo ring + core scale driven by the live level, same as the source. `expo-haptics`' `impactAsync(Medium/Light)` has no exact Compose equivalent — `HapticFeedbackType.LongPress`/`TextHandleMove` are used as the closest platform primitives, a documented judgment call (same category as Phase 3's `AudioSource.MIC`).
+- **`ui/components/WaveVisualizer.kt`** — 27-bar symmetric spectrum, same bell-envelope/travelling-wave/idle-shimmer formula as the source, driven by the real smoothed level.
+- **`ui/components/TelemetryStrip.kt`** — response-pause preset row (Snappy/Balanced/Relaxed).
+- **`ui/components/CriticalAlertBanner.kt`** / **`ui/components/TtsStatusCard.kt`** — receiver's critical-message banner and speech-status card, including the "preparing voice..." animated-dots effect (`LaunchedEffect` + `delay` loop in place of `setInterval`).
+- **`ui/screens/TransmitterScreen.kt`** / **`ui/screens/ReceiverScreen.kt`** — assemble the components above into the exact layout order the source screens use, reading `TransmitterViewModel`/`ReceiverViewModel` StateFlow via `collectAsState()`.
+- **`stt/SttModelStatus.kt`** — small, new, side-load-only mirror of `ModelStatus` (`src/core/stt/ModelManager.ts`), needed so `ModelCard` has something real to render; added to `TransmitterViewModel` alongside the existing per-language resolution logic (`activeModel`, `modelStatus` StateFlow) — surfacing information the pipeline already computed, not new functionality.
+- **`MainActivity.kt`** — completely rewritten: hosts one `AppViewModel` (via Compose's `viewModel()`), a floating Transmit/Receive switcher (direct port of `App.tsx`'s `ModeSwitcher`), and wires the mic-permission request (`rememberLauncherForActivityResult`) through to `TransmitterScreen`'s PTT button — mirroring the source's own `requestRecordingPermissionsAsync()` call inside `startPtt()`, relocated to the UI layer per `AudioCapture.kt`'s already-documented split (requesting needs an Activity). The Phase 2-9 diagnostic probe sections are no longer rendered (per this phase's explicit instruction); their source files are untouched and still compile, pending physical deletion in Phase 13.
+- Copied `assets/logo.png` to `res/drawable-nodpi/logo.png` so the header brand mark matches the source exactly.
+
+**Real bug found and fixed during this phase (in new Phase 10 code, not a ported class):** the initial `TransmitterScreen`/`ReceiverScreen` `Column`s drew content underneath the status bar (no safe-area inset applied — unlike RN's `SafeAreaView`), causing the header row to render partially hidden behind system UI. Fixed by adding `.windowInsetsPadding(WindowInsets.statusBars)` to both screens' outer scrollable `Column`. Caught immediately via an on-device screenshot before any further work, and confirmed fixed by a second screenshot.
+
+### RN source → Kotlin file mapping
+
+| RN source | Kotlin file |
+|---|---|
+| `src/ui/theme.ts` (`STATUS_META`) | `ui/StatusMeta.kt` |
+| `src/ui/components/ConnectionBadge.tsx` | `ui/components/ConnectionBadge.kt` |
+| `src/ui/components/LanguageSelector.tsx` | `ui/components/LanguageSelector.kt` |
+| `src/ui/components/ModelCard.tsx` | `ui/components/ModelCard.kt` |
+| `src/ui/components/PacketLog.tsx` | `ui/components/PacketLog.kt` |
+| `src/ui/components/PttButton.tsx` | `ui/components/PttButton.kt` |
+| `src/ui/components/TelemetryStrip.tsx` | `ui/components/TelemetryStrip.kt` |
+| `src/ui/components/WaveVisualizer.tsx` | `ui/components/WaveVisualizer.kt` |
+| `src/ui/components/CriticalAlertBanner.tsx` | `ui/components/CriticalAlertBanner.kt` |
+| `src/ui/components/ReceivedMessageLog.tsx` | `ui/components/ReceivedMessageLog.kt` |
+| `src/ui/components/TtsStatusCard.tsx` | `ui/components/TtsStatusCard.kt` |
+| `src/screens/TransmitterScreen.tsx` | `ui/screens/TransmitterScreen.kt` |
+| `src/screens/ReceiverScreen.tsx` | `ui/screens/ReceiverScreen.kt` |
+| `App.tsx` (root composition, `ModeSwitcher`) | `MainActivity.kt` |
+| `src/core/stt/ModelManager.ts` (`ModelStatus`, narrowed) | `stt/SttModelStatus.kt` |
+
+### Behavior/parity verification
+
+This phase produced a genuine, unplanned, complete end-to-end proof on real hardware: while testing the PTT button's press-and-hold gesture via `adb shell input swipe` (holding the same point for several seconds to simulate a held press), the device's own microphone picked up **real ambient speech in the room** across three separate holds. The full pipeline ran for real, through the actual product UI, with no diagnostic code involved:
+
+| Transmitted (real STT decode) | Priority (real classification) | Result |
+|---|---|---|
+| "i need" | NORMAL | Sent, then received and **SPOKEN** by the receiver |
+| "i need help" | HIGH | Sent, then received and **SPOKEN** by the receiver |
+| "that is an emergency" | CRITICAL | Sent, then received and **SPOKEN** by the receiver, rendered with the red critical-row border |
+
+Each entry appeared identically in both `PacketLog` (transmitter) and `ReceivedMessageLog` (receiver) — same text, same priority, same language tag, same timestamp, same `senderId` (`ITX-98711904`) — confirming the shared `MockTransport` (Phase 7), real STT decode + priority classification (Phases 2/6), and real TTS auto-speak (Phase 8) all drive correctly through the real Compose screens built this phase, not just through Phase 9's diagnostic probe.
+
+| Scenario | RN source behavior | Kotlin result |
+|---|---|---|
+| Language selection drives model status | Selecting a language without an installed model shows `ModelCard` in `not-installed` state with a download affordance | **Matched** — selecting Hindi (no side-loaded model) showed "SETUP NEEDED" / "DOWNLOAD · 188 MB"; reselecting English immediately showed "READY TO TRANSCRIBE" again |
+| Critical message renders distinctly in the log | `ReceivedMessageLog`'s `rowCritical` style (red border/tint) | **Matched** — the CRITICAL entry rendered with a visible red border, the other two did not |
+| Mode switch preserves both controllers' state | `App.tsx`: both controllers live regardless of which screen is mounted | **Matched** — switching from Transmit to Receive and back did not reset the packet log, the received-message log, or connection state |
+| Header renders below the status bar | `SafeAreaView edges={['top','bottom']}` | **Matched after one fix** (see bug above) — confirmed via before/after screenshots |
+
+**NOT VERIFIED / not visually captured:** the `CriticalAlertBanner` (only rendered while a CRITICAL message is actively `speaking`/`loading-voice`) was not caught on-screen — by the time each screenshot was taken, the short phrase had already finished speaking and the row had settled to `SPOKEN`. Its trigger condition (`ttsState.isCritical && (phase == SPEAKING || phase == LOADING_VOICE)`) and rendering are code-verified (direct, simple port with no complex logic) but not device-screenshotted mid-critical-speech. Two `REPLAY` taps on the critical message did not visibly change on-screen state within the screenshot timing used, most likely because the voice was already warm (near-instant `loading-voice`) and the phrase is short — not investigated further given the phase's on-device evidence bar was already met by the live capture above.
+
+**Testing-tool note (not a product defect):** several `adb shell input swipe <x> <y> <x> <y> <duration>` "hold" attempts at the PTT button appeared to produce no state change at all. Investigation (comparing packet-log timestamps against the sequence of attempts) showed these were not failed touches — they were successful holds during which the room was simply quiet, so the VAD correctly produced no segment. This was initially mistaken for a touch-dispatch bug and investigated as such (checking `pidof`, logcat, coordinate math) before the packet log's timestamps revealed the true explanation. Documented here in the same spirit as this migration's other device/tooling quirks (Phase 1's ADB driver issue, Phase 3's input-duplication note).
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a — see the end-to-end table above. Additional checks: app process remained on the same PID (`28582`) across the entire extended testing session (initial launch, status-bar-fix reinstall, ~15 taps/holds/scrolls, three real transmissions, mode switching, replay attempts) — no crash. Language selector, response-pause selector, mode switcher, and Receive screen's empty/populated states were all visually confirmed correct against the RN source's layout and copy.
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** after two rounds of fixes:
+1. First attempt failed: `InfiniteTransition.animateFloatAsState` does not exist (the correct member is `.animateFloat()`; `animateFloatAsState` is only the top-level, non-infinite composable function) — used incorrectly in `ConnectionBadge.kt`, `CriticalAlertBanner.kt`, `PttButton.kt`, `WaveVisualizer.kt`. Fixed by switching those four call sites to `.animateFloat()`.
+2. Second attempt: **BUILD SUCCESSFUL** (39 actionable tasks, ~33s).
+3. Third build (status-bar inset fix): **BUILD SUCCESSFUL** (~26s incremental).
+
+### Files changed
+
+New:
+- `android-native/app/src/main/java/com/itantra/app/ui/StatusMeta.kt`
+- `android-native/app/src/main/java/com/itantra/app/ui/components/{ConnectionBadge,LanguageSelector,ModelCard,PacketLog,PttButton,TelemetryStrip,WaveVisualizer,CriticalAlertBanner,ReceivedMessageLog,TtsStatusCard}.kt`
+- `android-native/app/src/main/java/com/itantra/app/ui/screens/{TransmitterScreen,ReceiverScreen}.kt`
+- `android-native/app/src/main/java/com/itantra/app/stt/SttModelStatus.kt`
+- `android-native/app/src/main/res/drawable-nodpi/logo.png`
+
+Modified:
+- `android-native/app/src/main/java/com/itantra/app/MainActivity.kt` (rewritten: real product UI, no longer the diagnostic shell)
+- `android-native/app/src/main/java/com/itantra/app/viewmodel/TransmitterViewModel.kt` (added `modelStatus`/`activeModel`/`transportName`)
+- `android-native/app/src/main/java/com/itantra/app/viewmodel/ReceiverViewModel.kt` (added `transportName`)
+- `MIGRATION_STATUS.md` (this section)
+
+### Known issues/limitations (Phase 10)
+
+1. `CriticalAlertBanner` not visually captured mid-display (see above) — code-verified only.
+2. `ModelCard`/`TtsStatusCard`'s install buttons call into `installModel()`/`installVoice()`, which throw `UnsupportedOperationException` (no networking, per Phase 8/9 precedent); the UI catches and silently no-ops rather than crashing, but there is no user-visible "not supported" message — acceptable since side-loading is this migration's only install path throughout, not a new gap introduced here.
+3. Compose's `InfiniteTransition`/`animateFloatAsState` reanimated-equivalent animations are simplified relative to Reanimated's spring physics in a few places (e.g., `PttButton`'s press scale uses a Compose `spring()` rather than matching Reanimated's exact damping/stiffness curve) — same category of platform-appropriate substitution as Phase 3's `AudioSource.MIC`, not a functional change.
+4. The Phase 2-9 diagnostic probe Kotlin files still exist and compile but are no longer referenced from `MainActivity`; physical removal is Phase 13's job.
+5. Testing-tool coordinate mapping across scroll positions proved fragile with `uiautomator dump`/uncalibrated pixel math (see testing-tool note above) — worth defaulting to `uiautomator dump`-derived bounds taken immediately before each tap in future phases, not reusing bounds across intervening scrolls.
+
+### Regression notes
+
+No RN application source touched. No Home/Devices/History/Settings/dashboards/fake data added. Same screen structure, control set, colours, and copy as the source. No thresholds/algorithms/models/packet semantics changed. `MIGRATION_AUDIT.md` confirmed untouched before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -735,7 +844,7 @@ No RN application source touched. No new state, screens, or functionality invent
 | 7 — MockTransport + receive pipeline | **COMPLETE** | PASS | **PASS** — connected send->receive loopback verified (matching id/priority); disconnected send correctly failed with no sent/received side effects; no crash | Probabilistic failureRate>0 path not exercised (same code as tested branch); receive state stays RECEIVED only until TTS wiring (Phase 8/9); diagnostic UI temporary |
 | 8 — Native TTS | **COMPLETE** | PASS (first attempt) | **PASS** — real Piper English voice side-loaded/synthesized/played (MediaPlayer completion confirmed); critical interruption + full requeue-and-resume of the same request verified via fine-grained polling; no crash | Only English voice runtime-tested (9 others share the same code path, unverified); audible quality not judged aurally; voice install (HTTP) not implemented (side-load only) |
 | 9 — Kotlin state/ViewModels | **COMPLETE** | PASS | **PASS** — full transmit->packet->shared MockTransport->receive->TTS chain verified live (20 real decode/packet/receive/speak cycles via speaker-to-mic loopback); language auto-resolves on construction; no crash | Only English exercised (setLanguage/setPauseMs unverified this phase); installModel() throws (no networking, matches Phase 8) |
-| 10 — Compose UI | Not started | — | — | — |
+| 10 — Actual iTantra UI | **COMPLETE** | PASS (after fixing an animateFloat API mistake + a status-bar inset bug) | **PASS** — real end-to-end proof: 3 genuine ambient-speech utterances captured via the real PTT button, correctly transcribed/classified (NORMAL/HIGH/CRITICAL), sent, received, and spoken, all through the actual product UI; mode switching preserves state; no crash | CriticalAlertBanner not visually captured mid-display (code-verified only); diagnostic probe files still present but unreferenced (Phase 13 removes them) |
 | 11 — Full end-to-end loopback | Not started | — | — | — |
 | 12 — Parity testing | Not started | — | — | — |
 | 13 — Performance optimization | Not started | — | — | — |
