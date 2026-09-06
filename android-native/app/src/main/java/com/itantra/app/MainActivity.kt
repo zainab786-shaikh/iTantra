@@ -30,6 +30,7 @@ import com.itantra.app.diagnostics.AudioCaptureProbeSection
 import com.itantra.app.diagnostics.PacketProbeSection
 import com.itantra.app.diagnostics.SttPipelineProbeSection
 import com.itantra.app.diagnostics.SttProbeSection
+import com.itantra.app.diagnostics.TransportProbeSection
 import com.itantra.app.diagnostics.VadSegmenterProbeSection
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppSizing
@@ -109,6 +110,7 @@ private fun ShellScreen(
                 onRequestPermission = onRequestAudioPermission,
             )
             PacketProbeSection()
+            TransportProbeSection()
         }
     }
 }

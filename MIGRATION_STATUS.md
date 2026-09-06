@@ -469,6 +469,84 @@ No RN application source touched. No Bluetooth/Wi-Fi/BLE/sockets/WebRTC/real tra
 
 ---
 
+## Phase 7 — MockTransport + Receive Pipeline
+
+**Status:** COMPLETE, verified on physical device
+**Date:** 2026-09-06
+**Device:** vivo V2055, Android 13 (SDK 33), arm64-v8a
+
+### What was built
+
+Direct port of `src/core/transport/Transport.ts`, `src/core/transport/MockTransport.ts`, and `src/core/receiver/types.ts`. No Bluetooth/Wi-Fi/BLE/sockets/WebRTC/real transport was added — this is exactly the same logging/loopback stand-in the RN app uses.
+
+- **`transport/Transport.kt`** — direct port of the `Transport` interface: `name`, `sendPacket(packet): Boolean` (a `suspend fun` in Kotlin, matching the source's `Promise<boolean>`), `isConnected(): Boolean`, `onConnectionChange(listener): () -> Unit`, `onPacketReceived(listener): () -> Unit`. Same shape, same subscribe/unsubscribe semantics.
+- **`transport/MockTransport.kt`** — direct port of `MockTransport.ts`: same `name = "mock://itantra-loopback"`, same simulated round-trip delay (`60 + random*90` ms, via `kotlinx.coroutines.delay` in place of `setTimeout`+`Promise`), same failure model (`!connected || random() < failureRate` → return `false`, packet not recorded, no loopback), same successful-send behavior (packet pushed to `sent`, logged, then looped back to `receiveListeners` after a further `120 + random*180` ms delay — standing in for a peer receiving it, exactly as the source's own comment states, since no real P2P transport exists yet). `simulateReceive()` and `setConnected()` test/demo affordances ported unchanged. The `setTimeout`-based loopback became a `scope.launch { delay(...); ... }` coroutine on a class-owned `CoroutineScope(SupervisorJob() + Dispatchers.Default)`, since Kotlin has no bare global timer primitive — behavior (delay then notify) is unchanged.
+- **`receiver/ReceivedMessage.kt`** — direct port of `src/core/receiver/types.ts`: `ReceivedMessageState` as a Kotlin enum (`RECEIVED/QUEUED/SPEAKING/SPOKEN/ERROR`) mirroring the TS string-literal union, and the `ReceivedMessage` data class (`packet`, `state`, `error: String?`, `receivedAt: Long`).
+- **`diagnostics/TransportProbe.kt`** — new, temporary (not product UI): builds a packet via the Phase 6 `buildPacket()`, sends it through a remembered `MockTransport` instance, and subscribes to `onPacketReceived` to append arriving packets to an on-screen received list (tagged `state = RECEIVED`, since TTS-driven state transitions to `QUEUED`/`SPEAKING`/`SPOKEN` are Phase 8/9 work, not yet wired). A second button toggles `setConnected()` to exercise the disconnected/failed-send path.
+- Added `org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0` to `app/build.gradle.kts` — the first explicit coroutines dependency in this project (`suspend fun sendPacket` and the loopback timer both need it).
+- `MainActivity.kt` — wired `TransportProbeSection()` in after the Phase 6 packet probe.
+
+**Not ported / explicitly deferred:** the receiver's TTS wiring (`TtsManager`, `useReceiverController.ts`'s state-machine that turns a `received` message into `queued` → `speaking` → `spoken`/`error`) is Phase 8/9 scope, not this phase. This phase proves the transport/receive plumbing only, per the explicit Phase 7 scope ("packet handling, receive flow... do NOT implement real Bluetooth/Wi-Fi/BLE/networking").
+
+### RN source → Kotlin file mapping
+
+| RN source | Kotlin file |
+|---|---|
+| `src/core/transport/Transport.ts` | `transport/Transport.kt` |
+| `src/core/transport/MockTransport.ts` | `transport/MockTransport.kt` |
+| `src/core/receiver/types.ts` | `receiver/ReceivedMessage.kt` |
+| (none — new diagnostic) | `diagnostics/TransportProbe.kt` |
+
+### Behavior/parity verification
+
+| Scenario | RN source behavior | Kotlin result |
+|---|---|---|
+| Connected send | delay ~60-150ms, push to `sent`, loop back to receive listeners after ~120-300ms | **Matched** — `sendPacket -> true`, `sent.size=1`, packet arrived in `received` list with the same `id` |
+| Disconnected send | `!connected` → return `false` immediately, packet NOT pushed to `sent`, no loopback | **Matched** — `sendPacket -> false`, `sent.size` stayed `1` (unchanged), `received` list stayed at its prior count (no new entry) |
+| Packet identity preserved end-to-end | received packet is the same object handed to `sendPacket` | **Matched** — received packet's `id` (`e81311ab…`) and priority (`CRITICAL`) exactly matched the sent packet |
+
+### Physical-device verification
+
+**PASS**, vivo V2055, Android 13, arm64-v8a:
+- Built, installed, launched cleanly; scrolled to "PHASE 7 · MOCKTRANSPORT + RECEIVE PROBE".
+- Tapped "SEND SAMPLE PACKET" while `connected=true`: `sendPacket -> true (id=e81311ab…, sent.size=1)`; after the loopback delay, `received (1): [received] [CRITICAL] "there is a fire, emergency" (en-IN) id=e81311ab…` — same id, correct CRITICAL classification carried through from Phase 6.
+- Tapped "TOGGLE CONNECTION" (`connected=false`), then "SEND SAMPLE PACKET" again: `sendPacket -> false (id=87904697…, sent.size=1)` — `sent.size` did not increase, and `received` count stayed at 1 (no new arrival) — correctly reproducing the source's disconnected-send failure path.
+- No crash through the entire sequence (send/receive/toggle/repeat).
+- Used `adb shell uiautomator dump` to read exact on-screen button bounds for reliable tap targeting on this device/resolution, after an initial mis-tap from screenshot-pixel estimation (a repeat of the same scaling lesson from Phase 6) — documented here so future phases on this device default to the UI dump method first.
+- Device locked once mid-session (charging screen), as in every prior phase; per established practice I did not send an unlock gesture and asked the user to unlock it, which they did before I continued.
+
+**NOT VERIFIED:** the source's random `failureRate`-driven probabilistic failure path (`failureRate > 0`) was not exercised on-device — the diagnostic constructs `MockTransport(failureRate = 0.0)`, so only the deterministic `!connected` failure branch was tested live. The code path is identical (`Random.nextDouble() < failureRate` is simply always false at `failureRate = 0.0`), so this is a coverage gap, not a known discrepancy.
+
+### Build result
+
+`cd android-native && ./gradlew assembleDebug` → **BUILD SUCCESSFUL** (39 actionable tasks, 12 executed / 27 up-to-date, ~28s).
+
+### Files changed
+
+New:
+- `android-native/app/src/main/java/com/itantra/app/transport/Transport.kt`
+- `android-native/app/src/main/java/com/itantra/app/transport/MockTransport.kt`
+- `android-native/app/src/main/java/com/itantra/app/receiver/ReceivedMessage.kt`
+- `android-native/app/src/main/java/com/itantra/app/diagnostics/TransportProbe.kt`
+
+Modified:
+- `android-native/app/build.gradle.kts` (added `kotlinx-coroutines-android`)
+- `android-native/app/src/main/java/com/itantra/app/MainActivity.kt` (wired `TransportProbeSection()`)
+- `MIGRATION_STATUS.md` (this section)
+
+### Known issues/limitations (Phase 7)
+
+1. Probabilistic `failureRate > 0` path not exercised on-device (see above) — same code path as the tested `!connected` branch, just not independently triggered.
+2. Receive handling only tags messages `RECEIVED` — the `QUEUED`/`SPEAKING`/`SPOKEN`/`ERROR` transitions depend on `TtsManager`, which is Phase 8/9 work, not yet wired. This is expected, scoped-out work, not a defect.
+3. Diagnostic UI (`TransportProbeSection`) is temporary scaffolding, same as Phases 2-6 — to be removed/relocated in the cleanup phase.
+4. `MockTransport`'s loopback coroutine runs on a class-owned `CoroutineScope` that is never explicitly cancelled/disposed in the diagnostic — acceptable for a temporary probe (process-lifetime scope), but the real controller (Phase 9) should tie this to a proper lifecycle scope instead.
+
+### Regression notes
+
+No RN application source touched. No Bluetooth/Wi-Fi/BLE/sockets/WebRTC/real transport added. No compression. Packet schema unchanged. Same simulated delay ranges and failure semantics as the source. `MIGRATION_AUDIT.md` confirmed untouched before staging.
+
+---
+
 ## Phase summary table
 
 | Phase | Status | Build | Device test | Known issues |
@@ -480,7 +558,7 @@ No RN application source touched. No Bluetooth/Wi-Fi/BLE/sockets/WebRTC/real tra
 | 4 — VAD + sentence segmentation | **COMPLETE** | PASS | **PASS** — real speaker-to-mic loopback produced a real 6272ms segment matching the reference clip, plus a forced flush segment on stop; 4 segments total, no crash | Initial ambient-noise transient is expected (not a bug); diagnostic UI temporary |
 | 5 — Complete STT pipeline | **COMPLETE** | PASS | **PASS** — full capture->VAD->segmenter->real STT->repair->filter chain verified with engine=SHERPA_ONNX active; empty segment correctly filtered; non-empty real transcript produced; no crash | Found+fixed a diagnostic-only bug (missing prepare() call, not in ported classes); transcript accuracy limited by speaker-to-mic loopback acoustics, not code |
 | 6 — Packet layer | **COMPLETE** | PASS | **PASS** — real senderId (ITX-98711904) derived from device ANDROID_ID; 5 sample packets, all classified into correct priority bands per verbatim keyword lists; no crash | Only 5/~90 keywords exercised on-device (rest verified by text comparison); diagnostic UI temporary; no transport wiring yet (Phase 7) |
-| 7 — Transport abstraction | Not started | — | — | — |
+| 7 — MockTransport + receive pipeline | **COMPLETE** | PASS | **PASS** — connected send->receive loopback verified (matching id/priority); disconnected send correctly failed with no sent/received side effects; no crash | Probabilistic failureRate>0 path not exercised (same code as tested branch); receive state stays RECEIVED only until TTS wiring (Phase 8/9); diagnostic UI temporary |
 | 8 — Native TTS | Not started | — | — | — |
 | 9 — ViewModel/state architecture | Not started | — | — | — |
 | 10 — Compose UI | Not started | — | — | — |
