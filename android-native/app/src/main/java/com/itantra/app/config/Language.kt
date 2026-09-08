@@ -38,3 +38,25 @@ val DEFAULT_LANGUAGE: Language = LANGUAGES.first()
 
 fun findLanguage(code: String): Language =
     LANGUAGES.find { it.code == code } ?: DEFAULT_LANGUAGE
+
+// ---------------------------------------------------------------------------
+// Wire contract.
+//
+// A language travels over the air as its *index into LANGUAGES* (6 bits, see
+// transport/PacketCodec.kt), not as its BCP-47 string — a 1-byte field instead
+// of a 5-byte one, on a link where the whole payload can be 2 bytes.
+//
+// That makes the ORDER OF THIS LIST part of the wire format. Appending a new
+// language is safe. Reordering, inserting, or removing an entry is not: two
+// devices on different builds would then disagree about what "3" means, and a
+// packet would decode into confidently wrong text in the wrong script.
+// ---------------------------------------------------------------------------
+
+/** Wire id for [code] — its index in [LANGUAGES]. Falls back to the default language's id. */
+fun languageWireId(code: String): Int {
+    val index = LANGUAGES.indexOfFirst { it.code == code }
+    return if (index >= 0) index else LANGUAGES.indexOf(DEFAULT_LANGUAGE)
+}
+
+/** Inverse of [languageWireId]. Returns null for an id this build does not know. */
+fun languageFromWireId(id: Int): Language? = LANGUAGES.getOrNull(id)

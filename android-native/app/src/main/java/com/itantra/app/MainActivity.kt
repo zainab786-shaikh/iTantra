@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.itantra.app.audio.AudioCapture
+import com.itantra.app.ui.screens.LinkScreen
 import com.itantra.app.ui.screens.ReceiverScreen
 import com.itantra.app.ui.screens.TransmitterScreen
 import com.itantra.app.ui.theme.AppColor
@@ -38,7 +39,7 @@ import com.itantra.app.ui.theme.AppRadius
 import com.itantra.app.ui.theme.ITantraTheme
 import com.itantra.app.viewmodel.AppViewModel
 
-private enum class Mode { TRANSMIT, RECEIVE }
+private enum class Mode { TRANSMIT, RECEIVE, LINK }
 
 /**
  * The actual iTantra product UI (Phase 10). Direct port of App.tsx's root
@@ -97,6 +98,7 @@ private fun AppShell(appViewModel: AppViewModel) {
                 onRequestMicPermission = { requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO) },
             )
             Mode.RECEIVE -> ReceiverScreen(appViewModel.receiver)
+            Mode.LINK -> LinkScreen(appViewModel.link)
         }
 
         Row(
@@ -109,6 +111,7 @@ private fun AppShell(appViewModel: AppViewModel) {
         ) {
             SwitchButton(label = "Transmit", active = mode == Mode.TRANSMIT, onClick = { mode = Mode.TRANSMIT })
             SwitchButton(label = "Receive", active = mode == Mode.RECEIVE, onClick = { mode = Mode.RECEIVE })
+            SwitchButton(label = "Link", active = mode == Mode.LINK, onClick = { mode = Mode.LINK })
         }
     }
 }

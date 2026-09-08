@@ -2,13 +2,15 @@ package com.itantra.app.viewmodel
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import com.itantra.app.transport.LinkControl
 import com.itantra.app.transport.MockTransport
+import com.itantra.app.transport.Transport
+import com.itantra.app.transport.UdpTransport
 
 /**
- * Direct port of App.tsx's root-component ownership: one MockTransport
- * instance shared by both the transmitter and the receiver, and both
- * controllers constructed unconditionally regardless of which screen is
- * currently shown.
+ * Direct port of App.tsx's root-component ownership: one transport instance
+ * shared by both the transmitter and the receiver, and both controllers
+ * constructed unconditionally regardless of which screen is currently shown.
  *
  * App.tsx's own comment explains why this matters and is reproduced here
  * verbatim because the same constraint applies to this Kotlin port: "Both
@@ -19,9 +21,28 @@ import com.itantra.app.transport.MockTransport
  * transport.onPacketReceived subscription) the moment the operator
  * switches away." An Android ViewModel scoped to the Activity (not to a
  * particular Compose screen/route) reproduces exactly this lifetime.
+ *
+ * This is also the single place where the transport is chosen. Swapping the
+ * link is one line, by design — see [USE_REAL_LINK].
  */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
-    private val transport = MockTransport()
+
+    /**
+     * Flip to false to fall back to the in-app loopback.
+     *
+     * [MockTransport] is kept rather than deleted precisely for this: if the
+     * wireless link will not come up on the day, everything above the
+     * transport — codec, byte accounting, priority interrupt, TTS — still
+     * demonstrates end-to-end on a single device, because nothing above this
+     * line knows which transport it is talking to.
+     */
+    private val useRealLink = USE_REAL_LINK
+
+    private val udp: UdpTransport? = if (useRealLink) UdpTransport(application) else null
+    private val transport: Transport = udp ?: MockTransport()
+
+    /** Non-null only when the active transport has an address to configure. */
+    val link: LinkControl? = udp
 
     val transmitter = TransmitterViewModel(application, transport)
     val receiver = ReceiverViewModel(application, transport)
@@ -29,5 +50,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         transmitter.dispose()
         receiver.dispose()
+        udp?.dispose()
+    }
+
+    private companion object {
+        const val USE_REAL_LINK = true
     }
 }

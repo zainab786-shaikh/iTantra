@@ -36,6 +36,17 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests {
+            // The pure-logic classes under test (frame codec, and from Level 2
+            // the text codec) touch no Android APIs, but they live in the same
+            // source set as classes that do. Returning defaults rather than
+            // throwing keeps an incidental stub call from failing a test that
+            // is not actually about Android.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +185,11 @@ dependencies {
     implementation("androidx.compose.material3:material3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // JVM unit tests for the wire frame and (from Level 2) the text codec.
+    // These guard the two claims the demo makes out loud - lossless, and
+    // smaller - and run without a device.
+    testImplementation("junit:junit:4.13.2")
 
     sherpaOnnxAar("com.xdcobra.sherpa:sherpa-onnx:$sherpaOnnxVersion@aar")
     onnxruntimeAar("com.xdcobra.sherpa:onnxruntime:$onnxruntimeVersion@aar")

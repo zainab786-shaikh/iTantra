@@ -34,3 +34,8 @@
 .scratch/
 asr_release_tmp.json
 tts_release_tmp.json
+
+# planning & demo specs
+implementation-plan.md
+prototype-for-demo.md
+

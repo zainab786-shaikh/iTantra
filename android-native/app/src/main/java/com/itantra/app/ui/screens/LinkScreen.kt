@@ -1,0 +1,213 @@
+package com.itantra.app.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.itantra.app.transport.LinkControl
+import com.itantra.app.transport.PeerSource
+import com.itantra.app.ui.theme.AppColor
+import com.itantra.app.ui.theme.AppRadius
+import com.itantra.app.ui.theme.AppSizing
+
+/**
+ * Link setup: who this device is, where it is, and where its peer is.
+ *
+ * Deliberately plain. It is operator configuration, not part of the
+ * transmit/receive cockpit, and on the day it needs to be usable in about
+ * fifteen seconds with a camera pointed at it.
+ */
+@Composable
+fun LinkScreen(link: LinkControl?) {
+    Box(modifier = Modifier.fillMaxSize().background(AppColor.Void)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = AppSizing.screenPadding)
+                .padding(top = 8.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Column {
+                Text("iTantra", color = AppColor.Text, fontSize = 19.sp, fontWeight = FontWeight.Black)
+                Text(
+                    "LINK · SETUP",
+                    color = AppColor.TextFaint,
+                    fontSize = 8.5.sp,
+                    letterSpacing = 1.5.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            if (link == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, AppColor.Hairline, RoundedCornerShape(AppRadius.md))
+                        .padding(vertical = 26.dp, horizontal = 16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "Running on the in-app loopback — there is no peer to configure.",
+                        color = AppColor.TextFaint,
+                        fontSize = 12.sp,
+                    )
+                }
+                return@Column
+            }
+
+            LinkStatusCard(link)
+            PeerField(link)
+
+            Text(
+                "Enter the other device's address, then press Done. Once the two " +
+                    "have exchanged a single frame, each one keeps using the address " +
+                    "it actually heard from — so only one side needs to be filled in.",
+                color = AppColor.TextFaint,
+                fontSize = 11.sp,
+                lineHeight = 17.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LinkStatusCard(link: LinkControl) {
+    val localAddress by link.localAddress.collectAsState()
+    val peerAddress by link.peerAddress.collectAsState()
+    val peerSource by link.peerSource.collectAsState()
+    val lastHeard by link.lastHeardMs.collectAsState()
+
+    // lastHeardMs is republished on the transport's own tick, so this figure
+    // refreshes without a second timer here.
+    val live = (lastHeard ?: Long.MAX_VALUE) < 45_000
+    val statusColor = if (live) AppColor.Live else AppColor.Danger
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppColor.Surface, RoundedCornerShape(AppRadius.lg))
+            .border(1.dp, AppColor.Hairline, RoundedCornerShape(AppRadius.lg))
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.size(6.dp).background(statusColor, CircleShape))
+            Text(
+                if (live) "PEER LIVE" else "NO PEER",
+                color = statusColor,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.8.sp,
+            )
+        }
+
+        InfoRow("THIS DEVICE", link.nodeLabel)
+        InfoRow("THIS ADDRESS", localAddress)
+        InfoRow("PEER", peerAddress ?: "—")
+        InfoRow(
+            "PEER FOUND BY",
+            when (peerSource) {
+                PeerSource.NONE -> "not yet — broadcasting"
+                PeerSource.CONFIGURED -> "address entered below"
+                PeerSource.LEARNED -> "heard from directly"
+            },
+        )
+        InfoRow(
+            "LAST HEARD",
+            lastHeard?.let { "${(it / 1000)}s ago" } ?: "never",
+        )
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            color = AppColor.TextFaint,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.1.sp,
+        )
+        Text(value, color = AppColor.TextMuted, fontSize = 12.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun PeerField(link: LinkControl) {
+    val stored by link.configuredHost.collectAsState()
+    var draft by remember(stored) { mutableStateOf(stored) }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "PEER ADDRESS",
+            color = AppColor.TextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it },
+            singleLine = true,
+            placeholder = { Text("192.168.43.1", color = AppColor.TextFaint, fontSize = 14.sp) },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Done,
+            ),
+            keyboardActions = KeyboardActions(onDone = {
+                link.setPeerHost(draft)
+                keyboard?.hide()
+            }),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = AppColor.Text,
+                unfocusedTextColor = AppColor.Text,
+                focusedBorderColor = AppColor.Primary,
+                unfocusedBorderColor = AppColor.Hairline,
+                cursorColor = AppColor.Primary,
+                focusedContainerColor = AppColor.Surface,
+                unfocusedContainerColor = AppColor.Surface,
+            ),
+            shape = RoundedCornerShape(AppRadius.sm),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
