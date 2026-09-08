@@ -189,7 +189,11 @@ fun TransmitterScreen(
                 onInstall = { transmitter.installModel() },
             )
 
-            TelemetryStrip(pauseMs = pauseMs, onPauseChange = { transmitter.setPauseMs(it) })
+            TelemetryStrip(
+                latest = log.firstOrNull(),
+                pauseMs = pauseMs,
+                onPauseChange = { transmitter.setPauseMs(it) },
+            )
 
             LanguageSelector(value = language, onChange = { transmitter.setLanguage(it) }, disabled = isActive)
 

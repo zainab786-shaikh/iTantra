@@ -19,13 +19,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.itantra.app.config.PAUSE_PRESETS
+import com.itantra.app.core.LogEntry
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppRadius
 import com.itantra.app.ui.theme.AppSizing
 
-/** Direct port of src/ui/components/TelemetryStrip.tsx. End-of-speech pause control. */
+/**
+ * End-of-speech pause control, plus the headline byte readout for the most
+ * recent transmission.
+ *
+ * [latest] is the newest entry in the sent log, or null before anything has
+ * been sent. Every figure shown comes from that packet as it actually went
+ * out - see CompressionReadout.
+ */
 @Composable
-fun TelemetryStrip(pauseMs: Int, onPauseChange: (Int) -> Unit) {
+fun TelemetryStrip(latest: LogEntry?, pauseMs: Int, onPauseChange: (Int) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -34,6 +42,19 @@ fun TelemetryStrip(pauseMs: Int, onPauseChange: (Int) -> Unit) {
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        Text("PAYLOAD", color = AppColor.TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        if (latest == null) {
+            Text("—", color = AppColor.TextFaint, fontSize = 19.sp, fontWeight = FontWeight.Black)
+        } else {
+            CompressionReadout(
+                originalBytes = latest.packet.originalBytes,
+                payloadBytes = latest.packet.payload.size,
+                mode = latest.packet.mode,
+            )
+        }
+
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AppColor.Hairline))
+
         Text("RESPONSE PAUSE", color = AppColor.TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PAUSE_PRESETS.forEach { preset ->

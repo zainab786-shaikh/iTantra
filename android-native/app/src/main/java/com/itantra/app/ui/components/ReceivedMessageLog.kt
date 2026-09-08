@@ -133,6 +133,58 @@ fun ReceivedMessageLog(
 
                         Text(m.text, color = AppColor.Text, fontSize = 14.sp, lineHeight = 20.sp)
 
+                        // The receiver never sees the original text - only
+                        // the payload that arrived. So both figures here are
+                        // measured locally: the bytes actually received, and
+                        // the UTF-8 size of what they reconstructed into.
+                        // Nothing is taken on trust from the far end.
+                        // Keyed on there being decoded text, NOT on the row's
+                        // state. ERROR is also how a TTS playback failure is
+                        // reported - a missing voice pack, say - and in that
+                        // case the bytes arrived and decoded perfectly well.
+                        // Hiding the readout there would understate what the
+                        // link actually achieved.
+                        if (m.text.isNotEmpty()) {
+                            val payload = m.packet.payload.size
+                            val rebuilt = m.text.toByteArray(Charsets.UTF_8).size
+                            val ratio = compressionRatio(rebuilt, payload)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    "$payload B → $rebuilt B",
+                                    color = AppColor.TextMuted,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                if (ratio != null) {
+                                    Text(
+                                        formatRatio(ratio),
+                                        color = modeColor(m.packet.mode),
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                    )
+                                }
+                                ModeChip(m.packet.mode)
+
+                                // Only PHRASE crosses languages, and when it
+                                // does this is the whole point: an id went
+                                // over the link and came out as different
+                                // words in a different script.
+                                if (m.textLanguage != m.packet.language) {
+                                    Text(
+                                        "${findLanguage(m.packet.language).short} → " +
+                                            findLanguage(m.textLanguage).short,
+                                        color = AppColor.Primary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 0.6.sp,
+                                    )
+                                }
+                            }
+                        }
+
                         if (m.state == ReceivedMessageState.ERROR && m.error != null) {
                             Text(m.error, color = AppColor.Danger, fontSize = 11.5.sp, lineHeight = 16.sp)
                         }

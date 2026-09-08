@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.itantra.app.config.findLanguage
 import com.itantra.app.core.LogEntry
 import com.itantra.app.packet.PRIORITY_COLORS
+import com.itantra.app.transport.PacketCodec
 import com.itantra.app.ui.hexColor
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppRadius
@@ -100,6 +101,52 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                             )
                         }
                         Text(entry.text, color = AppColor.Text, fontSize = 14.sp, lineHeight = 20.sp)
+
+                        // What this transmission actually cost. Read off the
+                        // packet in hand, not estimated: the payload's real
+                        // length, the source's real UTF-8 length, and the
+                        // frame header's real size.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            val original = entry.packet.originalBytes
+                            val payload = entry.packet.payload.size
+                            val ratio = compressionRatio(original, payload)
+                            Text(
+                                "$original B → $payload B",
+                                color = AppColor.TextMuted,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            if (ratio != null) {
+                                Text(
+                                    formatRatio(ratio),
+                                    color = modeColor(entry.packet.mode),
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                )
+                            }
+                            ModeChip(entry.packet.mode)
+                            // Stated rather than hidden: the frame carries a
+                            // header, and on a 2-byte payload that is most of
+                            // what goes out.
+                            Text(
+                                "+${PacketCodec.HEADER_BYTES} B hdr",
+                                color = AppColor.TextFaint,
+                                fontSize = 10.sp,
+                            )
+                            Text(
+                                // A real assertion, computed when the packet
+                                // was built by decoding its own payload back -
+                                // not a decorative tick.
+                                if (entry.roundTripOk) "✓" else "✗ LOSSY",
+                                color = if (entry.roundTripOk) AppColor.Live else AppColor.Danger,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                        }
+
                         Text(
                             // Locale-aware, matching the source's
                             // Date.toLocaleTimeString() (device/locale
