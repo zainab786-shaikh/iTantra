@@ -11,14 +11,42 @@ import com.itantra.app.packet.PacketPriority
  * (TtsManager) interrupts it — this class only owns ordering, not playback.
  */
 class TtsQueue {
+
+    private companion object {
+        /** How many recent ids are remembered for duplicate rejection. */
+        const val SEEN_WINDOW = 256
+    }
+
     private val normal = ArrayDeque<SpeakRequest>()
     private val critical = ArrayDeque<SpeakRequest>()
-    private val seen = mutableSetOf<String>()
+
+    /**
+     * Ids already accepted, as a bounded rolling window rather than a set
+     * that remembers forever.
+     *
+     * An unbounded set is a trap: any id collision, from any cause, silences
+     * that message permanently and silently - it arrives, it is displayed,
+     * and it is never spoken, with no error anywhere. That is exactly what
+     * happened when the sender's sequence counter restarted at zero on app
+     * launch and replayed ids this queue had already spoken.
+     *
+     * The sender no longer reuses ids (see UdpTransport), so this window is
+     * defence in depth: it still rejects the genuine duplicate a
+     * retransmission would produce, but it forgets old ids, so no single
+     * collision can mute the link for the rest of the session.
+     */
+    private val seen = LinkedHashSet<String>()
 
     /** @return false if [request]'s id was already enqueued or spoken (duplicate packet). */
     fun enqueue(request: SpeakRequest): Boolean {
         if (seen.contains(request.id)) return false
         seen.add(request.id)
+        // LinkedHashSet keeps insertion order, so the head is the oldest id.
+        while (seen.size > SEEN_WINDOW) {
+            val iterator = seen.iterator()
+            iterator.next()
+            iterator.remove()
+        }
 
         if (request.priority == PacketPriority.CRITICAL) {
             critical.addLast(request)

@@ -92,6 +92,12 @@ class ReceiverViewModel(
     }
 
     private fun handlePacket(packet: ITantraPacket) {
+        // Dedup here as well as in the speech queue, and on the same key, so
+        // the two can never disagree. Previously only the queue deduped, so a
+        // repeated id produced a visible row that was never spoken - the
+        // screen said one thing and the speaker did another.
+        if (_messages.value.any { it.packet.id == packet.id }) return
+
         // Decoded once, here. Everything downstream - the log row, the
         // language chip, the voice - reads these two values rather than
         // re-deriving them, which is the whole reason decode() returns the

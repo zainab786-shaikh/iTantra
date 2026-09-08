@@ -2,6 +2,7 @@ package com.itantra.app.tts
 
 import android.content.Context
 import android.media.AudioManager
+import android.util.Log
 import com.itantra.app.config.resolveTtsModelForLanguage
 import com.itantra.app.packet.PacketPriority
 import kotlinx.coroutines.CoroutineScope
@@ -13,6 +14,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+
+private const val TAG = "TtsManager"
 
 typealias TtsStateListener = (TtsPlaybackState) -> Unit
 
@@ -90,7 +93,12 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
      * `getState().error` instead, so one bad message cannot take down the
      * receiver pipeline.
      */
-    fun speakText(text: String, language: String, priority: PacketPriority, requestId: String? = null) {
+    fun speakText(
+        text: String,
+        language: String,
+        priority: PacketPriority,
+        requestId: String? = null,
+    ): Boolean {
         val request = SpeakRequest(
             id = requestId ?: UUID.randomUUID().toString(),
             text = text,
@@ -99,7 +107,14 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
         )
 
         val accepted = queue.enqueue(request)
-        if (!accepted) return // duplicate packet id - ignored, per spec
+        if (!accepted) {
+            // Logged, not silent. This return is why a message can arrive,
+            // appear on screen, and never be spoken - if it ever happens
+            // again, it should be findable in one logcat line rather than by
+            // reading the queue's source.
+            Log.w(TAG, "duplicate request ${request.id}; not queued for speech")
+            return false
+        }
 
         // A CRITICAL arrival while a lower-priority message is mid-playback
         // interrupts it immediately. The interrupted message is not lost:
@@ -114,6 +129,7 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
         }
 
         scope.launch { drain() }
+        return true
     }
 
     fun dispose() {

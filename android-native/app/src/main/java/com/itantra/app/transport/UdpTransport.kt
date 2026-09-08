@@ -95,7 +95,22 @@ class UdpTransport(
     override val nodeLabel: String = DeviceId.nodeLabel(selfNodeId)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val sequence = AtomicInteger(0)
+
+    /**
+     * Per-message counter, and it must NOT restart at zero.
+     *
+     * The receiver reconstructs a packet's identity from `nodeId + seq` (see
+     * [PacketCodec.frameId]) and dedups on it — the TTS queue refuses an id
+     * it has already spoken. A counter that reset on every launch therefore
+     * replayed ids the far end had already seen, and those messages arrived,
+     * displayed, and were silently never spoken. No error, because from the
+     * receiver's point of view they were duplicates.
+     *
+     * Persisted rather than randomised so the property is guaranteed rather
+     * than merely probable, and advanced by a block on startup so a process
+     * killed between writes can never hand out an id twice.
+     */
+    private val sequence: AtomicInteger
 
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var learnedPeer: InetSocketAddress? = null
@@ -123,6 +138,13 @@ class UdpTransport(
     override val configuredHost: StateFlow<String> = _configuredHost.asStateFlow()
 
     init {
+        // Reserve a whole block up front and persist the end of it. Anything
+        // handed out within the block is safe even if we are killed without
+        // writing again; the cost is that a restart burns up to one block.
+        val resumeAt = prefs.getInt(KEY_SEQUENCE, 0)
+        sequence = AtomicInteger(resumeAt)
+        prefs.edit().putInt(KEY_SEQUENCE, (resumeAt + SEQUENCE_BLOCK) and 0xFFFF).apply()
+
         _configuredHost.value.takeIf { it.isNotBlank() }?.let { applyConfiguredHost(it) }
         // The receive loop opens the socket; nothing else needs to race it to
         // do so first.
@@ -141,7 +163,8 @@ class UdpTransport(
             return false
         }
 
-        val frame = PacketCodec.serialize(packet, selfNodeId, sequence.getAndIncrement())
+        val seq = nextSequence()
+        val frame = PacketCodec.serialize(packet, selfNodeId, seq)
         if (frame == null) {
             Log.w(TAG, "frame for ${packet.id} exceeds ${PacketCodec.MAX_FRAME_BYTES} B; dropping")
             return false
@@ -200,6 +223,17 @@ class UdpTransport(
     // -----------------------------------------------------------------------
     // Internals
     // -----------------------------------------------------------------------
+
+    /**
+     * Next id, persisting a fresh block whenever this run exhausts its own.
+     */
+    private fun nextSequence(): Int {
+        val next = sequence.getAndIncrement() and 0xFFFF
+        if (next % SEQUENCE_BLOCK == 0) {
+            prefs.edit().putInt(KEY_SEQUENCE, (next + SEQUENCE_BLOCK) and 0xFFFF).apply()
+        }
+        return next
+    }
 
     private fun applyConfiguredHost(host: String) {
         configuredPeer = try {
@@ -409,5 +443,9 @@ class UdpTransport(
 
     private companion object {
         const val KEY_PEER_HOST = "peer-host"
+        const val KEY_SEQUENCE = "send-sequence"
+
+        /** Ids reserved per launch, so a crash cannot reissue one. */
+        const val SEQUENCE_BLOCK = 64
     }
 }
