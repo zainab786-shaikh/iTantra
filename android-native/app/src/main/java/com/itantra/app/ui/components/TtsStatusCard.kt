@@ -51,6 +51,15 @@ fun TtsStatusCard(
     onInstallVoice: (String) -> Unit,
     installing: Boolean,
     installPercent: Int,
+    /**
+     * The language actually being downloaded, when one is.
+     *
+     * Needed because a download can now be started from a failed message row,
+     * for whatever language that message was in - which is usually NOT the
+     * selected one. Without this the card cheerfully reported "downloading
+     * English, 64.1 MB" while fetching a 114 MB Odia voice.
+     */
+    installingLanguage: String? = null,
 ) {
     var dots by remember { mutableStateOf("") }
     LaunchedEffect(state.phase) {
@@ -64,11 +73,13 @@ fun TtsStatusCard(
         }
     }
 
-    // Determine target language: active error/playback language takes precedence over selected language
-    val activeLangCode = if (state.phase != TtsPlaybackPhase.IDLE && state.language != null) {
-        state.language
-    } else {
-        selectedLanguage
+    // Target language, most specific first: whatever is being downloaded
+    // right now, else the language of the active playback or error, else the
+    // one the operator has selected.
+    val activeLangCode = when {
+        installingLanguage != null -> installingLanguage
+        state.phase != TtsPlaybackPhase.IDLE && state.language != null -> state.language
+        else -> selectedLanguage
     }
 
     val lang = findLanguage(activeLangCode)

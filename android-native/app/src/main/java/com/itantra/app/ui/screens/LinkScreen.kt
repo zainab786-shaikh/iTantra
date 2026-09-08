@@ -36,8 +36,16 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.text.style.TextAlign
+import com.itantra.app.transport.LINK_RATE_PRESETS
 import com.itantra.app.transport.LinkControl
 import com.itantra.app.transport.PeerSource
+import com.itantra.app.transport.ThrottleControl
+import com.itantra.app.ui.components.AirtimeRace
+import com.itantra.app.ui.theme.AppSizing as Sizing
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppRadius
 import com.itantra.app.ui.theme.AppSizing
@@ -50,7 +58,7 @@ import com.itantra.app.ui.theme.AppSizing
  * fifteen seconds with a camera pointed at it.
  */
 @Composable
-fun LinkScreen(link: LinkControl?) {
+fun LinkScreen(link: LinkControl?, throttle: ThrottleControl) {
     Box(modifier = Modifier.fillMaxSize().background(AppColor.Void)) {
         Column(
             modifier = Modifier
@@ -86,20 +94,23 @@ fun LinkScreen(link: LinkControl?) {
                         fontSize = 12.sp,
                     )
                 }
-                return@Column
+            } else {
+                LinkStatusCard(link)
+                PeerField(link)
+
+                Text(
+                    "Enter the other device's address, then press Done. Once the two " +
+                        "have exchanged a single frame, each one keeps using the address " +
+                        "it actually heard from — so only one side needs to be filled in.",
+                    color = AppColor.TextFaint,
+                    fontSize = 11.sp,
+                    lineHeight = 17.sp,
+                )
             }
 
-            LinkStatusCard(link)
-            PeerField(link)
-
-            Text(
-                "Enter the other device's address, then press Done. Once the two " +
-                    "have exchanged a single frame, each one keeps using the address " +
-                    "it actually heard from — so only one side needs to be filled in.",
-                color = AppColor.TextFaint,
-                fontSize = 11.sp,
-                lineHeight = 17.sp,
-            )
+            // The throttle wraps every transport, loopback included, so this
+            // section renders regardless of whether there is a peer.
+            ThrottleSection(throttle)
         }
     }
 }
@@ -208,6 +219,113 @@ private fun PeerField(link: LinkControl) {
             ),
             shape = RoundedCornerShape(AppRadius.sm),
             modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/**
+ * Simulated link rate, and the race it makes visible.
+ *
+ * Labelled on screen as a rate limiter rather than a radio. That is a
+ * non-negotiable of the demo brief and it belongs in the UI, not only in the
+ * narration - a viewer should not have to take anyone's word for what they
+ * are being shown.
+ */
+@Composable
+private fun ThrottleSection(throttle: ThrottleControl) {
+    val enabled by throttle.enabled.collectAsState()
+    val bps by throttle.bitsPerSecond.collectAsState()
+    val lastFrame by throttle.lastFrame.collectAsState()
+    var runKey by remember { mutableIntStateOf(0) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppColor.Surface, RoundedCornerShape(AppRadius.lg))
+            .border(1.dp, AppColor.Hairline, RoundedCornerShape(AppRadius.lg))
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            "SIMULATED LINK RATE",
+            color = AppColor.TextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RateButton("Off", !enabled) { throttle.setEnabled(false) }
+            LINK_RATE_PRESETS.forEach { (label, rate) ->
+                RateButton(label, enabled && bps == rate) {
+                    throttle.setEnabled(true)
+                    throttle.setRate(rate)
+                }
+            }
+        }
+
+        Text(
+            "A rate limiter, not a radio. 250 bps is LoRa at SF12, the slowest " +
+                "common long-range setting. Airtime is arithmetic — bytes × 8 ÷ bitrate.",
+            color = AppColor.TextFaint,
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+        )
+
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AppColor.Hairline))
+
+        AirtimeRace(
+            cost = lastFrame,
+            bitsPerSecond = bps,
+            enabled = enabled,
+            runKey = runKey,
+        )
+
+        if (lastFrame != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(Sizing.touchTarget)
+                    .background(AppColor.Primary.copy(alpha = 0.12f), RoundedCornerShape(AppRadius.sm))
+                    .border(1.dp, AppColor.Primary.copy(alpha = 0.5f), RoundedCornerShape(AppRadius.sm))
+                    .clickable { runKey++ },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "RUN RACE AGAIN",
+                    color = AppColor.Primary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RateButton(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .height(Sizing.touchTarget)
+            .background(
+                if (selected) AppColor.Accent.copy(alpha = 0.12f) else AppColor.Surface,
+                RoundedCornerShape(AppRadius.sm),
+            )
+            .border(
+                1.dp,
+                if (selected) AppColor.Accent.copy(alpha = 0.53f) else AppColor.Hairline,
+                RoundedCornerShape(AppRadius.sm),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (selected) AppColor.AccentStrong else AppColor.TextMuted,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
         )
     }
 }

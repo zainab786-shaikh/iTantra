@@ -59,6 +59,19 @@ fun TransmitterScreen(
     transmitter: TransmitterViewModel,
     hasMicPermission: Boolean,
     onRequestMicPermission: () -> Unit,
+    /** Mode line under the wordmark, e.g. "TRANSMIT · OFFLINE". */
+    linkNote: String,
+    /**
+     * The simulated link rate, or null when the throttle is off.
+     *
+     * On its own line and in the warning colour, deliberately. It has to be
+     * visible whenever the throttle is on - the connection badge cannot
+     * carry it, because both screens render the badge compact, which hides
+     * its label - and appending it to [linkNote] made that line long enough
+     * to either crush the badge or clip the rate itself. A separate line
+     * also reads as what it is: a caveat, not a spec.
+     */
+    simNote: String?,
 ) {
     val context = LocalContext.current
 
@@ -92,7 +105,15 @@ fun TransmitterScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Weighted so the identity block yields to the badge instead of
+                // starving it: the mode line grew when it took on the
+                // simulated-rate suffix, and an unweighted Row squeezed
+                // "LINK ACTIVE" down to one letter per line.
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     Image(
                         painter = painterResource(R.drawable.logo),
                         contentDescription = null,
@@ -101,7 +122,24 @@ fun TransmitterScreen(
                     )
                     Column {
                         Text("iTantra", color = AppColor.Text, fontSize = 19.sp, fontWeight = FontWeight.Black)
-                        Text("TRANSMIT · OFFLINE", color = AppColor.TextFaint, fontSize = 8.5.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            linkNote,
+                            color = AppColor.TextFaint,
+                            fontSize = 8.5.sp,
+                            letterSpacing = 1.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                        if (simNote != null) {
+                            Text(
+                                simNote,
+                                color = AppColor.Warn,
+                                fontSize = 8.5.sp,
+                                letterSpacing = 1.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
                 ConnectionBadge(connected = connected, label = transmitter.transportName, compact = true)

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,15 +91,29 @@ private fun AppShell(appViewModel: AppViewModel) {
         }
     }
 
+    // Composed once, here, so both cockpit screens state the same thing.
+    val throttleOn by appViewModel.throttle.enabled.collectAsState()
+    val throttleBps by appViewModel.throttle.bitsPerSecond.collectAsState()
+    // "SIM LINK", not "SIMULATED LINK": the longer label clipped at this
+    // width, and dropping the BPS unit instead would have left a bare number
+    // that says nothing. The Link screen carries the full wording.
+    val simNote = if (throttleOn) "SIM LINK · $throttleBps BPS" else null
+
     Box(modifier = Modifier.fillMaxSize().background(AppColor.Void)) {
         when (mode) {
             Mode.TRANSMIT -> TransmitterScreen(
                 transmitter = appViewModel.transmitter,
                 hasMicPermission = audioPermissionGranted,
                 onRequestMicPermission = { requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                linkNote = "TRANSMIT · OFFLINE",
+                simNote = simNote,
             )
-            Mode.RECEIVE -> ReceiverScreen(appViewModel.receiver)
-            Mode.LINK -> LinkScreen(appViewModel.link)
+            Mode.RECEIVE -> ReceiverScreen(
+                receiver = appViewModel.receiver,
+                linkNote = "RECEIVE · OFFLINE",
+                simNote = simNote,
+            )
+            Mode.LINK -> LinkScreen(link = appViewModel.link, throttle = appViewModel.throttle)
         }
 
         Row(

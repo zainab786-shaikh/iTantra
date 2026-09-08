@@ -20,6 +20,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.itantra.app.config.findLanguage
+import com.itantra.app.config.resolveTtsModelForLanguage
+import com.itantra.app.tts.TtsVoiceStatus
 import com.itantra.app.packet.PRIORITY_COLORS
 import com.itantra.app.packet.PacketPriority
 import com.itantra.app.receiver.ReceivedMessage
@@ -49,6 +51,18 @@ fun ReceivedMessageLog(
     messages: List<ReceivedMessage>,
     onClear: () -> Unit,
     onReplay: (String) -> Unit,
+    /**
+     * Install state of the voice for a given language, or null if this build
+     * has no voice for it.
+     *
+     * Only consulted for rows that actually failed, so this is at most a
+     * couple of disk checks per render rather than one per row.
+     */
+    voiceStatusFor: (String) -> TtsVoiceStatus? = { null },
+    /** The language currently being downloaded, if any. */
+    installingLanguage: String? = null,
+    installPercent: Int = 0,
+    onInstallVoice: (String) -> Unit = {},
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -187,6 +201,55 @@ fun ReceivedMessageLog(
 
                         if (m.state == ReceivedMessageState.ERROR && m.error != null) {
                             Text(m.error, color = AppColor.Danger, fontSize = 11.5.sp, lineHeight = 16.sp)
+
+                            // A message that arrived and decoded perfectly but
+                            // cannot be spoken is one download away from
+                            // working. Offering that download here, on the row
+                            // that failed, saves the operator from working out
+                            // that the fix is to change the decode-language
+                            // selector to a language they did not choose.
+                            //
+                            // Keyed on textLanguage, not the packet's language:
+                            // that is the language the text is actually in, and
+                            // therefore the voice that is missing.
+                            val voiceLang = m.textLanguage
+                            val status = voiceStatusFor(voiceLang)
+                            val missing = status == null || status is TtsVoiceStatus.NotInstalled ||
+                                status is TtsVoiceStatus.Error
+                            val model = resolveTtsModelForLanguage(voiceLang)
+
+                            if (missing && model != null) {
+                                val busy = installingLanguage == voiceLang
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(AppRadius.sm))
+                                        .background(AppColor.Primary.copy(alpha = 0.12f))
+                                        .border(
+                                            1.dp,
+                                            AppColor.Primary.copy(alpha = 0.5f),
+                                            RoundedCornerShape(AppRadius.sm),
+                                        )
+                                        .clickable(enabled = installingLanguage == null) {
+                                            onInstallVoice(voiceLang)
+                                        }
+                                        .padding(vertical = 11.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        if (busy) {
+                                            "DOWNLOADING VOICE $installPercent%"
+                                        } else {
+                                            "DOWNLOAD ${findLanguage(voiceLang).label.uppercase()} " +
+                                                "VOICE · ${model.approxMb} MB"
+                                        },
+                                        color = AppColor.Primary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 0.8.sp,
+                                    )
+                                }
+                            }
                         }
 
                         Row(

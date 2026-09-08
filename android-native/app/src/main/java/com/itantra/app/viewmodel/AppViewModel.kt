@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import com.itantra.app.transport.LinkControl
 import com.itantra.app.transport.MockTransport
+import com.itantra.app.transport.ThrottleControl
+import com.itantra.app.transport.ThrottledTransport
 import com.itantra.app.transport.Transport
 import com.itantra.app.transport.UdpTransport
 
@@ -39,10 +41,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val useRealLink = USE_REAL_LINK
 
     private val udp: UdpTransport? = if (useRealLink) UdpTransport(application) else null
-    private val transport: Transport = udp ?: MockTransport()
+    private val base: Transport = udp ?: MockTransport()
+
+    /**
+     * The simulated link rate wraps whatever the real transport is.
+     *
+     * Both view models receive this outer instance and neither knows it
+     * exists - the whole point of the decorator. Turning the throttle off
+     * removes the delay from the path without changing the chain.
+     */
+    private val throttled = ThrottledTransport(base)
+    private val transport: Transport = throttled
 
     /** Non-null only when the active transport has an address to configure. */
     val link: LinkControl? = udp
+
+    /** Always available: the throttle wraps every transport. */
+    val throttle: ThrottleControl = throttled
 
     val transmitter = TransmitterViewModel(application, transport)
     val receiver = ReceiverViewModel(application, transport)

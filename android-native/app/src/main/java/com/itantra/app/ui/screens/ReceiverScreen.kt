@@ -50,22 +50,69 @@ import kotlinx.coroutines.launch
  * middle, history below) so the two screens read as one app.
  */
 @Composable
-fun ReceiverScreen(receiver: ReceiverViewModel) {
+fun ReceiverScreen(
+    receiver: ReceiverViewModel,
+    /** Mode line under the wordmark, e.g. "RECEIVE · OFFLINE". */
+    linkNote: String,
+    /**
+     * The simulated link rate, or null when the throttle is off.
+     *
+     * On its own line and in the warning colour, deliberately. It has to be
+     * visible whenever the throttle is on - the connection badge cannot
+     * carry it, because both screens render the badge compact, which hides
+     * its label - and appending it to [linkNote] made that line long enough
+     * to either crush the badge or clip the rate itself. A separate line
+     * also reads as what it is: a caveat, not a spec.
+     */
+    simNote: String?,
+) {
     val messages by receiver.messages.collectAsState()
     val ttsState by receiver.ttsState.collectAsState()
     val connected by receiver.connected.collectAsState()
     val language by receiver.language.collectAsState()
     val scope = rememberCoroutineScope()
 
-    var installing by remember { mutableStateOf(false) }
+    // Keyed by language rather than a bare boolean: a voice can now be
+    // installed from a failed message row, which is for whatever language
+    // that message was in - not necessarily the one selected below.
+    var installingLanguage by remember { mutableStateOf<String?>(null) }
     var installPercent by remember { mutableIntStateOf(0) }
+    // Bumped after an install so the per-row voice status is re-read from
+    // disk; without it the freshly downloaded voice still reads as missing.
+    var voiceEpoch by remember { mutableIntStateOf(0) }
 
-    val activeLangCode = if (ttsState.phase != TtsPlaybackPhase.IDLE && ttsState.language != null) {
-        ttsState.language!!
-    } else {
-        language
+    /**
+     * Download a voice, then speak the message that was waiting on it.
+     *
+     * Replaying automatically is the point: the operator pressed download
+     * *because* they wanted to hear that transmission, and on a critical
+     * message a second manual tap is a second too long.
+     */
+    fun installVoice(languageCode: String, replayPacketId: String?) {
+        if (installingLanguage != null) return
+        installingLanguage = languageCode
+        installPercent = 0
+        scope.launch {
+            try {
+                receiver.installVoice(languageCode) { percent, _ -> installPercent = percent }
+                voiceEpoch++
+                replayPacketId?.let { receiver.replay(it) }
+            } catch (e: Exception) {
+                // Surfaced by the row's own status on the next render.
+            } finally {
+                installingLanguage = null
+            }
+        }
     }
-    val voiceStatus = receiver.voiceStatus(activeLangCode)
+
+    // Mirrors TtsStatusCard's own precedence so the status it is handed is
+    // for the same language it is labelling.
+    val activeLangCode = when {
+        installingLanguage != null -> installingLanguage!!
+        ttsState.phase != TtsPlaybackPhase.IDLE && ttsState.language != null -> ttsState.language!!
+        else -> language
+    }
+    val voiceStatus = remember(activeLangCode, voiceEpoch) { receiver.voiceStatus(activeLangCode) }
 
     val criticalActive = ttsState.isCritical &&
         (ttsState.phase == TtsPlaybackPhase.SPEAKING || ttsState.phase == TtsPlaybackPhase.LOADING_VOICE)
@@ -85,7 +132,15 @@ fun ReceiverScreen(receiver: ReceiverViewModel) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Weighted so the identity block yields to the badge instead of
+                // starving it: the mode line grew when it took on the
+                // simulated-rate suffix, and an unweighted Row squeezed
+                // "LINK ACTIVE" down to one letter per line.
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     Image(
                         painter = painterResource(R.drawable.logo),
                         contentDescription = null,
@@ -94,7 +149,24 @@ fun ReceiverScreen(receiver: ReceiverViewModel) {
                     )
                     Column {
                         Text("iTantra", color = AppColor.Text, fontSize = 19.sp, fontWeight = FontWeight.Black)
-                        Text("RECEIVE · OFFLINE", color = AppColor.TextFaint, fontSize = 8.5.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            linkNote,
+                            color = AppColor.TextFaint,
+                            fontSize = 8.5.sp,
+                            letterSpacing = 1.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                        if (simNote != null) {
+                            Text(
+                                simNote,
+                                color = AppColor.Warn,
+                                fontSize = 8.5.sp,
+                                letterSpacing = 1.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
                 ConnectionBadge(connected = connected, label = receiver.transportName, compact = true)
@@ -108,33 +180,30 @@ fun ReceiverScreen(receiver: ReceiverViewModel) {
                 state = ttsState,
                 selectedLanguage = language,
                 voiceStatus = voiceStatus,
-                onInstallVoice = { languageCode ->
-                    installing = true
-                    installPercent = 0
-                    scope.launch {
-                        try {
-                            receiver.installVoice(languageCode) { percent, _ -> installPercent = percent }
-                        } catch (e: Exception) {
-                            // Swallowed - state will reflect on failure.
-                        } finally {
-                            installing = false
-                        }
-                    }
-                },
-                installing = installing,
+                onInstallVoice = { languageCode -> installVoice(languageCode, replayPacketId = null) },
+                installing = installingLanguage != null,
                 installPercent = installPercent,
+                installingLanguage = installingLanguage,
             )
 
             LanguageSelector(
                 value = language,
                 onChange = { receiver.setLanguage(it) },
-                disabled = installing,
+                disabled = installingLanguage != null,
             )
 
             ReceivedMessageLog(
                 messages = messages,
                 onClear = { receiver.clearHistory() },
                 onReplay = { receiver.replay(it) },
+                voiceStatusFor = { code -> voiceEpoch.let { receiver.voiceStatus(code) } },
+                installingLanguage = installingLanguage,
+                installPercent = installPercent,
+                onInstallVoice = { code ->
+                    // Replay the newest message that was waiting on this voice.
+                    val waiting = messages.firstOrNull { it.textLanguage == code }
+                    installVoice(code, replayPacketId = waiting?.packet?.id)
+                },
             )
 
             Text(
