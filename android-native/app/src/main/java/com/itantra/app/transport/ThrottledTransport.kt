@@ -95,6 +95,15 @@ class ThrottledTransport(
     private val inner: Transport,
     initialBitsPerSecond: Int = LORA_SF12_BPS,
     initialEnabled: Boolean = true,
+    /**
+     * Called whenever the operator changes the rate, so the choice can be
+     * persisted.
+     *
+     * Kept as a lambda rather than taking a Context: this class has no other
+     * Android dependency and is unit-testable because of it. The owner
+     * supplies storage.
+     */
+    private val onSettingsChanged: (bitsPerSecond: Int, enabled: Boolean) -> Unit = { _, _ -> },
 ) : Transport, ThrottleControl {
 
     /**
@@ -120,10 +129,12 @@ class ThrottledTransport(
 
     override fun setRate(bitsPerSecond: Int) {
         _bitsPerSecond.value = bitsPerSecond.coerceAtLeast(1)
+        onSettingsChanged(_bitsPerSecond.value, _enabled.value)
     }
 
     override fun setEnabled(enabled: Boolean) {
         _enabled.value = enabled
+        onSettingsChanged(_bitsPerSecond.value, _enabled.value)
     }
 
     override suspend fun sendPacket(packet: ITantraPacket): Boolean {

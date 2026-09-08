@@ -184,12 +184,31 @@ fun TransmitterScreen(
                         error != null -> Text(error, color = AppColor.Danger, fontSize = 13.sp, textAlign = TextAlign.Center, lineHeight = 19.sp)
                         lastResult != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(lastResult.text, color = AppColor.Text, fontSize = 17.sp, lineHeight = 25.sp, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium)
-                            Text(
-                                "${findLanguage(lastResult.language).label} · ${"%.1f".format(lastResult.durationMs / 1000)}s",
-                                color = AppColor.TextFaint,
-                                fontSize = 10.sp,
-                                letterSpacing = 0.4.sp,
-                            )
+                            // Decode latency belongs on screen, not just in a
+                            // README: "offline STT in well under a second" is
+                            // a claim the demo makes out loud, and this is the
+                            // measurement behind it - wall-clock from
+                            // end-of-speech to decoded text, for the utterance
+                            // being shown.
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "${findLanguage(lastResult.language).label} · " +
+                                        "${"%.1f".format(lastResult.durationMs / 1000)}s audio",
+                                    color = AppColor.TextFaint,
+                                    fontSize = 10.sp,
+                                    letterSpacing = 0.4.sp,
+                                )
+                                Text(
+                                    "${lastResult.latencyMs} ms decode",
+                                    color = if (lastResult.latencyMs < 1000) AppColor.Live else AppColor.Warn,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 0.4.sp,
+                                )
+                            }
                         }
                         else -> Text(
                             "Hold the mic and speak. Pause briefly or release to send.",

@@ -25,13 +25,16 @@ class MeasurementTest {
     @Test
     fun `measured payload sizes and airtime`() {
         val cases = listOf(
+            // Free speech - whatever the operator happens to say.
             Triple("Hindi", "hi-IN", "उत्तर द्वार पर आग लग गई है तुरंत मदद भेजो"),
-            Triple("Hindi", "hi-IN", "उत्तर द्वार पर आग"),
-            Triple("Tamil", "ta-IN", "வடக்கு வாசலில் தீ"),
-            Triple("English", "en-IN", "send help immediately"),
-            Triple("English", "en-IN", "requesting backup at checkpoint three"),
-            Triple("Bengali", "bn-IN", "উত্তর গেটে আগুন এখনই সাহায্য পাঠান"),
+            Triple("Tamil", "ta-IN", "வடக்கு வாசலில் தீ ஆபத்து உடனடி உதவி"),
             Triple("Telugu", "te-IN", "ఉత్తర ద్వారం వద్ద మంటలు వెంటనే సహాయం పంపండి"),
+            Triple("English", "en-IN", "requesting backup at checkpoint three"),
+            // Known phrases - the 2-byte path.
+            Triple("Hindi", "hi-IN", PhraseDictionary.surfaceFor(1, "hi-IN")!!),
+            Triple("Marathi", "mr-IN", PhraseDictionary.surfaceFor(1, "mr-IN")!!),
+            Triple("Bengali", "bn-IN", PhraseDictionary.surfaceFor(1, "bn-IN")!!),
+            Triple("English", "en-IN", PhraseDictionary.surfaceFor(1, "en-IN")!!),
         )
 
         val bps = 250

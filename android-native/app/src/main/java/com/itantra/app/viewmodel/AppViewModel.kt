@@ -1,7 +1,9 @@
 package com.itantra.app.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
+import com.itantra.app.transport.LORA_SF12_BPS
 import com.itantra.app.transport.LinkControl
 import com.itantra.app.transport.MockTransport
 import com.itantra.app.transport.ThrottleControl
@@ -50,7 +52,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * exists - the whole point of the decorator. Turning the throttle off
      * removes the delay from the path without changing the chain.
      */
-    private val throttled = ThrottledTransport(base)
+    // Persisted, so a rate chosen for filming survives an app restart rather
+    // than silently reverting to the default between takes.
+    private val prefs = application.getSharedPreferences("itantra-link", Context.MODE_PRIVATE)
+    private val throttled = ThrottledTransport(
+        inner = base,
+        initialBitsPerSecond = prefs.getInt(KEY_THROTTLE_BPS, LORA_SF12_BPS),
+        initialEnabled = prefs.getBoolean(KEY_THROTTLE_ON, true),
+        onSettingsChanged = { bps, enabled ->
+            prefs.edit().putInt(KEY_THROTTLE_BPS, bps).putBoolean(KEY_THROTTLE_ON, enabled).apply()
+        },
+    )
     private val transport: Transport = throttled
 
     /** Non-null only when the active transport has an address to configure. */
@@ -70,5 +82,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val USE_REAL_LINK = true
+        const val KEY_THROTTLE_BPS = "throttle-bps"
+        const val KEY_THROTTLE_ON = "throttle-on"
     }
 }

@@ -13,7 +13,15 @@ import org.junit.Test
 class PhraseDictionaryTest {
 
     private val codec = ITantraCodec()
-    private val languages = listOf("en-IN", "hi-IN", "ta-IN", "mr-IN", "bn-IN")
+    /**
+     * The languages the phrase table is authored in.
+     *
+     * Tamil is deliberately not among them: a Tamil operator still transmits
+     * and is still understood, the message simply travels as PACK7 rather
+     * than as a 2-byte id. Coverage here is a demo choice, not a capability
+     * boundary.
+     */
+    private val languages = listOf("en-IN", "hi-IN", "mr-IN", "bn-IN")
 
     @Test
     fun `every phrase is authored in every supported language`() {
@@ -106,10 +114,10 @@ class PhraseDictionaryTest {
     @Test
     fun `a phrase spoken in one language is delivered in the receiver's`() {
         for (id in PhraseDictionary.ids) {
-            val sent = PhraseDictionary.surfaceFor(id, "ta-IN")!!
-            val encoded = codec.encode(sent, "ta-IN")
+            val sent = PhraseDictionary.surfaceFor(id, "mr-IN")!!
+            val encoded = codec.encode(sent, "mr-IN")
             for (receiver in languages) {
-                val decoded = codec.decode(encoded.mode, encoded.bytes, "ta-IN", receiver)
+                val decoded = codec.decode(encoded.mode, encoded.bytes, "mr-IN", receiver)
                 assertEquals(
                     "phrase $id delivered to $receiver",
                     PhraseDictionary.surfaceFor(id, receiver),

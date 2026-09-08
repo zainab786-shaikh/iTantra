@@ -152,7 +152,8 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                             // Date.toLocaleTimeString() (device/locale
                             // 12h-vs-24h convention), not a fixed format.
                             DateFormat.getTimeInstance(DateFormat.MEDIUM, Locale.getDefault())
-                                .format(Date(entry.packet.timestamp)),
+                                .format(Date(entry.packet.timestamp)) +
+                                " · ${entry.latencyMs} ms decode",
                             color = AppColor.TextFaint,
                             fontSize = 10.sp,
                         )

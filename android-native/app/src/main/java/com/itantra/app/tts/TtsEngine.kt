@@ -102,6 +102,7 @@ class TtsEngine {
         }
 
         cleanupTempFile()
+        sweepOrphanedWavs(cacheDir)
         val wavFile = File(cacheDir, "tts-playback-${System.currentTimeMillis()}.wav")
         val saved = GeneratedAudio(audio.samples, audio.sampleRate).save(wavFile.absolutePath)
         check(saved) { "Failed to save synthesized audio to ${wavFile.absolutePath}" }
@@ -126,12 +127,23 @@ class TtsEngine {
         return SpeakResult(synthesisMs, audioDurationMs)
     }
 
-    /** Stop playback immediately, without disposing the loaded voice. Used for critical interruption. */
+    /**
+     * Stop playback immediately, without disposing the loaded voice. Used for
+     * critical interruption.
+     *
+     * `stop()` rather than `pause()`: this is invoked when a CRITICAL message
+     * pre-empts whatever is speaking, and the intent is that the interrupted
+     * audio is finished with, not merely suspended mid-word with a decoder
+     * still holding the stream. A paused player also stays holding its output
+     * until something else releases it, which on the interrupt path is
+     * exactly the moment the next voice wants it.
+     */
     fun stopPlayback() {
         try {
-            player?.pause()
+            player?.stop()
         } catch (e: Exception) {
-            // Best effort.
+            // A player already stopped, released, or never started throws
+            // rather than no-opping. Nothing to recover here.
         }
     }
 
@@ -146,6 +158,27 @@ class TtsEngine {
         tts?.release()
         tts = null
         loadedModelId = null
+    }
+
+    /**
+     * Delete playback WAVs left behind by earlier app sessions.
+     *
+     * [cleanupTempFile] only knows about the one file this instance is
+     * currently tracking, so a process death mid-playback - or simply
+     * closing the app - strands its WAV forever. Each is a megabyte or two
+     * and they accumulate silently in the cache; four had built up on the
+     * test device inside a day.
+     */
+    private fun sweepOrphanedWavs(cacheDir: File) {
+        try {
+            val keep = tempWavFile?.name
+            cacheDir.listFiles { file ->
+                file.isFile && file.name.startsWith("tts-playback-") &&
+                    file.name.endsWith(".wav") && file.name != keep
+            }?.forEach { it.delete() }
+        } catch (e: Exception) {
+            // Housekeeping only - never fail a transmission over disk tidiness.
+        }
     }
 
     private fun cleanupTempFile() {

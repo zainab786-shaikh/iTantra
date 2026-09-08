@@ -48,121 +48,103 @@ object PhraseDictionary {
      */
     private val PHRASES: Map<Int, Map<String, String>> = mapOf(
         // ---------------------------------------------------------------
-        // CRITICAL
+        // CRITICAL — these pre-empt whatever the receiver is speaking.
         // ---------------------------------------------------------------
         1 to mapOf(
-            "en-IN" to "fire at north gate",
-            "hi-IN" to "उत्तर द्वार पर आग",
-            "ta-IN" to "வடக்கு வாசலில் தீ",
-            "mr-IN" to "उत्तर दरवाजाला आग",
-            "bn-IN" to "উত্তর গেটে আগুন",
+            "en-IN" to "there is a fire at the north gate send immediate assistance",
+            "hi-IN" to "उत्तर द्वार पर आग लग गई है तुरंत सहायता भेजें",
+            "mr-IN" to "उत्तर दरवाजाजवळ आग लागली आहे त्वरित मदत पाठवा",
+            "bn-IN" to "উত্তর গেটে আগুন লেগেছে এখনই সাহায্য পাঠান",
         ),
         5 to mapOf(
-            "en-IN" to "emergency at checkpoint",
-            "hi-IN" to "चौकी पर आपातकाल",
-            "ta-IN" to "சோதனைச் சாவடியில் அவசரம்",
-            "mr-IN" to "चौकीवर आणीबाणी",
-            "bn-IN" to "চেকপোস্টে জরুরি অবস্থা",
+            "en-IN" to "we have an emergency at the main checkpoint respond immediately",
+            "hi-IN" to "मुख्य चौकी पर आपातकाल है तुरंत प्रतिक्रिया दें",
+            "mr-IN" to "मुख्य चौकीवर आणीबाणी आहे त्वरित प्रतिसाद द्या",
+            "bn-IN" to "প্রধান চেকপোস্টে জরুরি অবস্থা এখনই সাড়া দিন",
         ),
         6 to mapOf(
-            "en-IN" to "under attack",
-            "hi-IN" to "हम पर हमला हुआ है",
-            "ta-IN" to "தாக்குதல் நடக்கிறது",
-            "mr-IN" to "आमच्यावर हल्ला झाला",
-            "bn-IN" to "আমরা হামলার শিকার",
+            "en-IN" to "our position is under attack request immediate support",
+            "hi-IN" to "हमारी चौकी पर हमला हो रहा है तुरंत सहायता चाहिए",
+            "mr-IN" to "आमच्या ठिकाणावर हल्ला होत आहे त्वरित मदत हवी",
+            "bn-IN" to "আমাদের অবস্থানে হামলা হচ্ছে এখনই সহায়তা দরকার",
         ),
 
         // ---------------------------------------------------------------
         // HIGH
         // ---------------------------------------------------------------
         2 to mapOf(
-            "en-IN" to "send help immediately",
-            "hi-IN" to "तुरंत मदद भेजो",
-            "ta-IN" to "உடனடியாக உதவி அனுப்பவும்",
-            "mr-IN" to "त्वरित मदत पाठवा",
-            "bn-IN" to "এখনই সাহায্য পাঠান",
+            "en-IN" to "send help immediately to our current location",
+            "hi-IN" to "हमारे वर्तमान स्थान पर तुरंत मदद भेजें",
+            "mr-IN" to "आमच्या सध्याच्या ठिकाणी त्वरित मदत पाठवा",
+            "bn-IN" to "আমাদের বর্তমান অবস্থানে এখনই সাহায্য পাঠান",
         ),
         7 to mapOf(
-            "en-IN" to "requesting backup",
-            "hi-IN" to "सहायता भेजो",
-            "ta-IN" to "உதவி தேவை",
-            "mr-IN" to "मदत हवी आहे",
-            "bn-IN" to "সাহায্য প্রয়োজন",
+            "en-IN" to "requesting backup at our location as soon as possible",
+            "hi-IN" to "हमारे स्थान पर जल्द से जल्द सहायता भेजी जाए",
+            "mr-IN" to "आमच्या ठिकाणी लवकरात लवकर मदत पाठवावी",
+            "bn-IN" to "আমাদের অবস্থানে যত দ্রুত সম্ভব সাহায্য পাঠান",
         ),
         8 to mapOf(
-            "en-IN" to "medic required",
-            "hi-IN" to "चिकित्सा सहायता चाहिए",
-            "ta-IN" to "மருத்துவ உதவி தேவை",
-            "mr-IN" to "वैद्यकीय मदत हवी",
-            "bn-IN" to "চিকিৎসা সাহায্য দরকার",
+            "en-IN" to "we need a medic at this location right away",
+            "hi-IN" to "इस स्थान पर तुरंत चिकित्सा सहायता की आवश्यकता है",
+            "mr-IN" to "या ठिकाणी त्वरित वैद्यकीय मदत आवश्यक आहे",
+            "bn-IN" to "এই অবস্থানে এখনই চিকিৎসা সাহায্য প্রয়োজন",
         ),
         9 to mapOf(
-            "en-IN" to "evacuate immediately",
-            "hi-IN" to "तुरंत खाली करो",
-            "ta-IN" to "உடனடியாக வெளியேறவும்",
-            "mr-IN" to "त्वरित रिकामे करा",
-            "bn-IN" to "তাড়াতাড়ি সরে যান",
+            "en-IN" to "evacuate the area immediately and move to safety",
+            "hi-IN" to "इस क्षेत्र को तुरंत खाली करें और सुरक्षित स्थान पर जाएं",
+            "mr-IN" to "हा परिसर त्वरित रिकामा करा आणि सुरक्षित ठिकाणी जा",
+            "bn-IN" to "এই এলাকা তাড়াতাড়ি খালি করুন এবং নিরাপদ স্থানে যান",
         ),
         10 to mapOf(
-            "en-IN" to "injured man down",
-            "hi-IN" to "घायल सैनिक गिरा है",
-            // "காயம் அடைந்தார்", not the compound "காயமடைந்தவர்": compounding
-            // absorbs the virama on ம, so the HIGH keyword "காயம்" stops being
-            // a substring and this phrase alone would have gone out as NORMAL
-            // from a Tamil operator while every other language sent HIGH.
-            "ta-IN" to "வீரர் காயம் அடைந்தார்",
-            "mr-IN" to "जखमी सैनिक पडला आहे",
-            "bn-IN" to "আহত সৈনিক পড়ে গেছে",
+            "en-IN" to "we have an injured man down and need assistance",
+            "hi-IN" to "एक सैनिक घायल हो गया है सहायता की आवश्यकता है",
+            "mr-IN" to "एक सैनिक जखमी झाला आहे मदत आवश्यक आहे",
+            "bn-IN" to "একজন সৈনিক আহত হয়েছে সহায়তা প্রয়োজন",
         ),
 
         // ---------------------------------------------------------------
         // MEDIUM
         // ---------------------------------------------------------------
         3 to mapOf(
-            "en-IN" to "position secured",
-            "hi-IN" to "स्थिति सुरक्षित है",
-            "ta-IN" to "நிலை பாதுகாக்கப்பட்டது",
-            "mr-IN" to "स्थिती सुरक्षित आहे",
-            "bn-IN" to "অবস্থান সুরক্ষিত",
+            "en-IN" to "our position is secured and we are holding steady",
+            "hi-IN" to "हमारी स्थिति सुरक्षित है और हम डटे हुए हैं",
+            "mr-IN" to "आमची स्थिती सुरक्षित आहे आणि आम्ही तैनात आहोत",
+            "bn-IN" to "আমাদের অবস্থান সুরক্ষিত এবং আমরা প্রস্তুত আছি",
         ),
         11 to mapOf(
-            "en-IN" to "report status",
-            "hi-IN" to "स्थिति की रिपोर्ट दो",
-            "ta-IN" to "நிலை அறிக்கை தேவை",
-            "mr-IN" to "स्थिती अहवाल द्या",
-            "bn-IN" to "অবস্থা রিপোর্ট করুন",
+            "en-IN" to "all units report your current status over",
+            "hi-IN" to "सभी इकाइयां अपनी वर्तमान स्थिति की रिपोर्ट दें",
+            "mr-IN" to "सर्व पथकांनी आपली सध्याची स्थिती कळवावी",
+            "bn-IN" to "সকল ইউনিট আপনাদের বর্তমান অবস্থা রিপোর্ট করুন",
         ),
         12 to mapOf(
-            "en-IN" to "hold position",
-            "hi-IN" to "स्थिति बनाए रखो",
-            "ta-IN" to "நிலையை தக்கவைக்கவும்",
-            "mr-IN" to "स्थिती कायम ठेवा",
-            "bn-IN" to "অবস্থান ধরে রাখুন",
+            "en-IN" to "hold your position and await further instructions",
+            "hi-IN" to "अपनी स्थिति बनाए रखें और अगले निर्देश की प्रतीक्षा करें",
+            "mr-IN" to "आपली स्थिती कायम ठेवा आणि पुढील सूचनांची वाट पहा",
+            "bn-IN" to "আপনার অবস্থান ধরে রাখুন এবং পরবর্তী নির্দেশের অপেক্ষা করুন",
         ),
         13 to mapOf(
-            "en-IN" to "moving to secondary position",
-            "hi-IN" to "दूसरी स्थिति की ओर बढ़ रहे हैं",
-            "ta-IN" to "இரண்டாம் நிலைக்கு நகர்கிறோம்",
-            "mr-IN" to "दुसऱ्या स्थितीकडे जात आहोत",
-            "bn-IN" to "দ্বিতীয় অবস্থানে যাচ্ছি",
+            "en-IN" to "we are moving to the secondary position now",
+            "hi-IN" to "हम दूसरी स्थिति की ओर बढ़ रहे हैं",
+            "mr-IN" to "आम्ही दुसऱ्या स्थितीकडे जात आहोत",
+            "bn-IN" to "আমরা দ্বিতীয় অবস্থানে সরে যাচ্ছি",
         ),
 
         // ---------------------------------------------------------------
         // NORMAL
         // ---------------------------------------------------------------
         4 to mapOf(
-            "en-IN" to "area clear",
-            "hi-IN" to "क्षेत्र सुरक्षित है",
-            "ta-IN" to "பகுதி பாதுகாப்பானது",
-            "mr-IN" to "परिसर मोकळा आहे",
-            "bn-IN" to "এলাকা নিরাপদ",
+            "en-IN" to "the area is clear and all is quiet here",
+            "hi-IN" to "क्षेत्र पूरी तरह सुरक्षित है और सब कुछ शांत है",
+            "mr-IN" to "परिसर पूर्णपणे मोकळा आहे आणि सर्व काही शांत आहे",
+            "bn-IN" to "এলাকা সম্পূর্ণ নিরাপদ এবং সব কিছু শান্ত",
         ),
         14 to mapOf(
-            "en-IN" to "message received",
-            "hi-IN" to "संदेश मिल गया",
-            "ta-IN" to "செய்தி கிடைத்தது",
-            "mr-IN" to "संदेश मिळाला",
-            "bn-IN" to "বার্তা পেয়েছি",
+            "en-IN" to "your message has been received loud and clear",
+            "hi-IN" to "आपका संदेश स्पष्ट रूप से प्राप्त हो गया है",
+            "mr-IN" to "तुमचा संदेश स्पष्टपणे मिळाला आहे",
+            "bn-IN" to "আপনার বার্তা স্পষ্টভাবে পৌঁছেছে",
         ),
     )
 

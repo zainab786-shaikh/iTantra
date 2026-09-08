@@ -136,9 +136,9 @@ class CodecTest {
     @Test
     fun `a known phrase costs two bytes whatever its length`() {
         for ((text, language) in listOf(
-            "fire at north gate" to "en-IN",
-            "उत्तर द्वार पर आग" to "hi-IN",
-            "வடக்கு வாசலில் தீ" to "ta-IN",
+            PhraseDictionary.surfaceFor(1, "en-IN")!! to "en-IN",
+            PhraseDictionary.surfaceFor(1, "hi-IN")!! to "hi-IN",
+            PhraseDictionary.surfaceFor(1, "mr-IN")!! to "mr-IN",
         )) {
             val encoded = codec.encode(text, language)
             assertEquals("$language \"$text\"", CodecMode.PHRASE, encoded.mode)
@@ -199,18 +199,21 @@ class CodecTest {
     }
 
     @Test
-    fun `PHRASE crosses languages - Tamil in, Hindi out, no translation`() {
-        val encoded = codec.encode("வடக்கு வாசலில் தீ", "ta-IN")
+    fun `PHRASE crosses languages - Marathi in, Hindi out, no translation`() {
+        val spoken = PhraseDictionary.surfaceFor(1, "mr-IN")!!
+        val encoded = codec.encode(spoken, "mr-IN")
         assertEquals(CodecMode.PHRASE, encoded.mode)
+        assertEquals(2, encoded.bytes.size)
 
-        val decoded = codec.decode(encoded.mode, encoded.bytes, "ta-IN", "hi-IN")
-        assertEquals("उत्तर द्वार पर आग", decoded.text)
+        val decoded = codec.decode(encoded.mode, encoded.bytes, "mr-IN", "hi-IN")
+        assertEquals(PhraseDictionary.surfaceFor(1, "hi-IN"), decoded.text)
         assertEquals("hi-IN", decoded.languageCode)
     }
 
     @Test
     fun `PHRASE falls back to the sender's language when the receiver has no surface`() {
-        val encoded = codec.encode("fire at north gate", "en-IN")
+        val english = PhraseDictionary.surfaceFor(1, "en-IN")!!
+        val encoded = codec.encode(english, "en-IN")
         // Gujarati has no surfaces in the phrase table, so a Gujarati-
         // configured receiver cannot render this id in its own language. It
         // must still hear the message, in the sender's.
@@ -220,7 +223,7 @@ class CodecTest {
             PhraseDictionary.surfaceFor(1, receiver),
         )
         val decoded = codec.decode(encoded.mode, encoded.bytes, "en-IN", receiver)
-        assertEquals("fire at north gate", decoded.text)
+        assertEquals(english, decoded.text)
         assertEquals("en-IN", decoded.languageCode)
     }
 
@@ -228,7 +231,7 @@ class CodecTest {
     fun `a phrase whose surface differs from what was said is not sent as PHRASE`() {
         // Punctuation the table does not carry: encoding as PHRASE would put
         // the operator's words back slightly changed, so it must not be used.
-        val text = "fire at north gate."
+        val text = PhraseDictionary.surfaceFor(1, "en-IN")!! + "."
         assertNotEquals(CodecMode.PHRASE, codec.encode(text, "en-IN").mode)
         assertEquals(text, roundTrip(text, "en-IN"))
     }
