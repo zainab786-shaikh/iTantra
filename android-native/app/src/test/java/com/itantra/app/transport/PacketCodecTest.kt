@@ -1,5 +1,7 @@
 package com.itantra.app.transport
 
+import com.itantra.app.codec.CodecMode
+import com.itantra.app.codec.ITantraCodec
 import com.itantra.app.config.LANGUAGES
 import com.itantra.app.packet.ITantraPacket
 import com.itantra.app.packet.PacketPriority
@@ -17,20 +19,30 @@ import org.junit.Test
 class PacketCodecTest {
 
     private val nodeId: Short = 0x3F1A
+    private val codec = ITantraCodec()
 
+    /** Builds a frame-ready packet the same way PacketFactory does. */
     private fun packet(
         text: String,
         language: String = "en-IN",
         priority: PacketPriority = PacketPriority.NORMAL,
-    ) = ITantraPacket(
-        id = "local-id",
-        senderId = "ITX-ABCDEF12",
-        timestamp = 1_700_000_000_000L,
-        language = language,
-        text = text,
-        priority = priority,
-        isCompressed = false,
-    )
+    ): ITantraPacket {
+        val encoded = codec.encode(text, language)
+        return ITantraPacket(
+            id = "local-id",
+            senderId = "ITX-ABCDEF12",
+            timestamp = 1_700_000_000_000L,
+            language = language,
+            payload = encoded.bytes,
+            mode = encoded.mode,
+            originalBytes = encoded.originalBytes,
+            priority = priority,
+        )
+    }
+
+    /** What the far end would render for a received packet. */
+    private fun textOf(p: ITantraPacket, receiverLanguage: String = "en-IN"): String =
+        codec.decode(p.mode, p.payload, p.language, receiverLanguage).text
 
     private fun roundTrip(source: ITantraPacket, seq: Int = 7): ITantraPacket {
         val frame = PacketCodec.serialize(source, nodeId, seq)
@@ -42,14 +54,33 @@ class PacketCodecTest {
 
     @Test
     fun `header is exactly 11 bytes`() {
-        val frame = PacketCodec.serialize(packet("hi"), nodeId, 0)!!
-        assertEquals(PacketCodec.HEADER_BYTES + 2, frame.size)
+        val p = packet("hi")
+        val frame = PacketCodec.serialize(p, nodeId, 0)!!
+        assertEquals(PacketCodec.HEADER_BYTES + p.payload.size, frame.size)
         assertEquals(11, PacketCodec.HEADER_BYTES)
     }
 
     @Test
-    fun `text survives the round trip`() {
-        assertEquals("send help immediately", roundTrip(packet("send help immediately")).text)
+    fun `payload and mode survive the round trip`() {
+        val sent = packet("requesting backup at checkpoint three")
+        val received = roundTrip(sent)
+        assertTrue(sent.payload.contentEquals(received.payload))
+        assertEquals(sent.mode, received.mode)
+        assertEquals(sent.originalBytes, received.originalBytes)
+        assertEquals("requesting backup at checkpoint three", textOf(received))
+    }
+
+    @Test
+    fun `a compressed payload survives the wire and still decodes`() {
+        val text = "उत्तर द्वार पर आग लग गई है तुरंत मदद भेजो"
+        val sent = packet(text, language = "hi-IN")
+        assertEquals(CodecMode.PACK7, sent.mode)
+
+        val received = roundTrip(sent)
+        assertEquals(CodecMode.PACK7, received.mode)
+        assertEquals(text, textOf(received, receiverLanguage = "hi-IN"))
+        assertTrue("payload should be smaller than the source",
+            received.payload.size < received.originalBytes)
     }
 
     @Test
@@ -71,9 +102,9 @@ class PacketCodecTest {
         assertEquals("every registered language needs a sample", LANGUAGES.size, samples.size)
 
         for ((code, text) in samples) {
-            val decoded = roundTrip(packet(text, language = code))
-            assertEquals("text for $code", text, decoded.text)
-            assertEquals("language for $code", code, decoded.language)
+            val received = roundTrip(packet(text, language = code))
+            assertEquals("text for $code", text, textOf(received, receiverLanguage = code))
+            assertEquals("language for $code", code, received.language)
         }
     }
 
@@ -125,6 +156,15 @@ class PacketCodecTest {
             PacketCodec.deserialize(good, good.size - 1),
         )
         assertNull(
+            // A newer build's compression mode must be dropped, not misread
+            // as RAW and rendered as mojibake.
+            "a mode this build does not know",
+            PacketCodec.deserialize(
+                good.copyOf().also { it[1] = ((it[1].toInt() and 0xF0) or 7).toByte() },
+                good.size,
+            ),
+        )
+        assertNull(
             "language id this build does not know",
             PacketCodec.deserialize(
                 good.copyOf().also { it[2] = ((it[2].toInt() and 0xC0) or 63).toByte() },
@@ -137,6 +177,14 @@ class PacketCodecTest {
     fun `an oversized message is refused rather than truncated`() {
         val huge = packet("x".repeat(PacketCodec.MAX_FRAME_BYTES + 1))
         assertNull(PacketCodec.serialize(huge, nodeId, 0))
+    }
+
+    @Test
+    fun `hello is not mistaken for a zero length message`() {
+        val hello = PacketCodec.serializeHello(nodeId, "en-IN")
+        val empty = PacketCodec.serialize(packet(""), nodeId, 0)!!
+        assertTrue(PacketCodec.deserialize(hello, hello.size) is PacketCodec.Frame.Hello)
+        assertTrue(PacketCodec.deserialize(empty, empty.size) is PacketCodec.Frame.Data)
     }
 
     @Test

@@ -40,7 +40,10 @@ class MockTransport(
         }
 
         sent.add(packet)
-        println("[MockTransport] -> ${packet.priority.value} ${packet.language} \"${packet.text}\" (${packet.id})")
+        println(
+            "[MockTransport] -> ${packet.priority.value} ${packet.language} " +
+                "${packet.mode.name} ${packet.originalBytes} B -> ${packet.payload.size} B (${packet.id})"
+        )
 
         // No real P2P transport exists yet (a separate, later workstream), so
         // this loops a successfully "sent" packet back to this same device's

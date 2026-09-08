@@ -99,7 +99,7 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                                 letterSpacing = 0.6.sp,
                             )
                         }
-                        Text(entry.packet.text, color = AppColor.Text, fontSize = 14.sp, lineHeight = 20.sp)
+                        Text(entry.text, color = AppColor.Text, fontSize = 14.sp, lineHeight = 20.sp)
                         Text(
                             // Locale-aware, matching the source's
                             // Date.toLocaleTimeString() (device/locale

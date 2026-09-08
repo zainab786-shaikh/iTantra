@@ -11,6 +11,7 @@ import com.itantra.app.config.SttModelDescriptor
 import com.itantra.app.config.VadConfig
 import com.itantra.app.config.findLanguage
 import com.itantra.app.config.resolveModelForLanguage
+import com.itantra.app.codec.ITantraCodec
 import com.itantra.app.core.INITIAL_TRANSCRIPTION_STATE
 import com.itantra.app.core.LogEntry
 import com.itantra.app.core.TranscriptionResult
@@ -70,6 +71,8 @@ class TransmitterViewModel(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val vad = EnergyVad()
+    /** Text -> bytes. Owned here because encoding is part of packaging an utterance. */
+    private val codec = ITantraCodec()
     private val sttProvider = SttEngineProvider(modelsRootDir)
     private val sttModelManager = SttModelManager(modelsRootDir)
     private var vadConfig: VadConfig = DEFAULT_VAD_CONFIG.copy(endOfSpeechSilenceMs = DEFAULT_VAD_CONFIG.endOfSpeechSilenceMs)
@@ -328,13 +331,20 @@ class TransmitterViewModel(
                 forced = segment.forced,
             )
 
-            val packet = buildPacket(text = text, language = languageCode, senderId = _senderId.value)
+            val built = buildPacket(
+                text = text,
+                language = languageCode,
+                senderId = _senderId.value,
+                codec = codec,
+            )
             val engineKind = sttProvider.status.kind
-            val delivered = transport.sendPacket(packet)
+            val delivered = transport.sendPacket(built.packet)
 
             _log.value = (listOf(
                 LogEntry(
-                    packet = packet,
+                    packet = built.packet,
+                    text = built.text,
+                    roundTripOk = built.roundTripOk,
                     delivered = delivered,
                     latencyMs = latencyMs,
                     simulated = engineKind == SttEngineKind.SIMULATED,

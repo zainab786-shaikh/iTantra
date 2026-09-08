@@ -1,6 +1,7 @@
 package com.itantra.app.viewmodel
 
 import android.content.Context
+import com.itantra.app.codec.ITantraCodec
 import com.itantra.app.config.DEFAULT_LANGUAGE
 import com.itantra.app.packet.ITantraPacket
 import com.itantra.app.receiver.ReceivedMessage
@@ -35,6 +36,8 @@ class ReceiverViewModel(
 ) {
     private val appContext = context.applicationContext
     val transportName: String = transport.name
+    /** Bytes -> text. The only thing that turns an arriving payload into words. */
+    private val codec = ITantraCodec()
     private val ttsManager = TtsManager(appContext, File(appContext.filesDir, "itantra-tts-models"))
 
     /** Maps a TtsManager request id back to the history row it belongs to - identity for normal messages, a synthetic id for replays. */
@@ -89,8 +92,33 @@ class ReceiverViewModel(
     }
 
     private fun handlePacket(packet: ITantraPacket) {
+        // Decoded once, here. Everything downstream - the log row, the
+        // language chip, the voice - reads these two values rather than
+        // re-deriving them, which is the whole reason decode() returns the
+        // language alongside the text (see codec.DecodedText).
+        val decoded = try {
+            codec.decode(packet.mode, packet.payload, packet.language, _language.value)
+        } catch (e: Exception) {
+            // A payload this build cannot decode is not spoken and not
+            // guessed at; it is shown as a failed message.
+            val failed = ReceivedMessage(
+                packet = packet,
+                text = "",
+                textLanguage = packet.language,
+                state = ReceivedMessageState.ERROR,
+                error = "This message could not be decoded.",
+                receivedAt = System.currentTimeMillis(),
+            )
+            _messages.value = (listOf(failed) + _messages.value).let {
+                if (it.size > MAX_HISTORY) it.subList(0, MAX_HISTORY) else it
+            }
+            return
+        }
+
         val entry = ReceivedMessage(
             packet = packet,
+            text = decoded.text,
+            textLanguage = decoded.languageCode,
             state = ReceivedMessageState.RECEIVED,
             error = null,
             receivedAt = System.currentTimeMillis(),
@@ -101,7 +129,10 @@ class ReceiverViewModel(
         _messages.value = withNew
 
         correlation[packet.id] = packet.id
-        ttsManager.speakText(packet.text, packet.language, packet.priority, packet.id)
+        // decoded.languageCode, NOT packet.language: a PHRASE message was
+        // rendered in this device's own language and must be spoken in this
+        // device's own voice.
+        ttsManager.speakText(decoded.text, decoded.languageCode, packet.priority, packet.id)
 
         // Reflect "handed to the queue" promptly; the subscription above
         // takes over from here once the manager actually starts on it.
@@ -124,7 +155,9 @@ class ReceiverViewModel(
 
         val replayId = "$packetId::replay::${System.currentTimeMillis()}"
         correlation[replayId] = packetId
-        ttsManager.speakText(entry.packet.text, entry.packet.language, entry.packet.priority, replayId)
+        // Reads the already-decoded row rather than decoding again, so a
+        // replay can never disagree with what was originally spoken.
+        ttsManager.speakText(entry.text, entry.textLanguage, entry.packet.priority, replayId)
 
         _messages.value = _messages.value.map { m ->
             if (m.packet.id == packetId) m.copy(state = ReceivedMessageState.QUEUED, error = null) else m

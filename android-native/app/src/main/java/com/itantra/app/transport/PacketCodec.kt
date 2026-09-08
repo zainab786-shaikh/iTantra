@@ -1,5 +1,6 @@
 package com.itantra.app.transport
 
+import com.itantra.app.codec.CodecMode
 import com.itantra.app.config.languageFromWireId
 import com.itantra.app.config.languageWireId
 import com.itantra.app.device.DeviceId
@@ -54,9 +55,6 @@ object PacketCodec {
     private const val MAGIC: Byte = 0x49 // 'I'
     private const val VERSION = 1
 
-    /** Payload is UTF-8 text, uncompressed. */
-    const val MODE_RAW: Byte = 0
-
     /**
      * Not a message: a keepalive announcing "node N is here, at this address".
      *
@@ -85,12 +83,9 @@ object PacketCodec {
      * @return the frame, or null if it would exceed [MAX_FRAME_BYTES].
      */
     fun serialize(packet: ITantraPacket, nodeId: Short, seq: Int): ByteArray? {
-        // Level 1: the payload is the transcript as UTF-8 and the mode is RAW.
-        // Level 2 replaces these two lines with the codec's output and the
-        // mode it selected; nothing else in this file changes.
-        val payload = packet.text.toByteArray(Charsets.UTF_8)
-        val mode = MODE_RAW
-        val originalBytes = payload.size
+        val payload = packet.payload
+        val mode = packet.mode.wire
+        val originalBytes = packet.originalBytes
 
         if (HEADER_BYTES + payload.size > MAX_FRAME_BYTES) return null
 
@@ -163,14 +158,20 @@ object PacketCodec {
         val language = languageFromWireId(langId) ?: return null
         val priority = PacketPriority.entries.getOrNull(priorityIndex) ?: return null
 
+        // Same reasoning for the mode: a payload we cannot decode is not
+        // something to guess at. A newer build's mode is dropped, not
+        // misread as RAW.
+        val codecMode = CodecMode.fromWire(mode) ?: return null
+
         val packet = ITantraPacket(
             id = frameId(nodeId, seq),
             senderId = DeviceId.nodeLabel(nodeId),
             timestamp = System.currentTimeMillis(),
             language = language.code,
-            text = String(payload, Charsets.UTF_8),
+            payload = payload,
+            mode = codecMode,
+            originalBytes = originalBytes,
             priority = priority,
-            isCompressed = mode != MODE_RAW,
         )
         return Frame.Data(packet)
     }

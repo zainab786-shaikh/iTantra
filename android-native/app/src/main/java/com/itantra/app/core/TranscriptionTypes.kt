@@ -65,6 +65,16 @@ val INITIAL_TRANSCRIPTION_STATE = TranscriptionState(
 /** Direct port of LogEntry in src/hooks/useTransmitterController.ts. One entry in the transmitted-message log. */
 data class LogEntry(
     val packet: ITantraPacket,
+    /**
+     * What the operator said.
+     *
+     * Held here rather than on the packet: the packet carries only the
+     * encoded payload, so the plaintext lives on the side that legitimately
+     * already knows it.
+     */
+    val text: String,
+    /** Whether decoding the packet's own payload reproduces [text] exactly. */
+    val roundTripOk: Boolean,
     /** Whether the transport accepted the packet. */
     val delivered: Boolean,
     val latencyMs: Long,

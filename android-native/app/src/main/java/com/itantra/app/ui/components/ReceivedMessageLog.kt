@@ -111,8 +111,8 @@ fun ReceivedMessageLog(
                                 letterSpacing = 1.sp,
                             )
                             Text(
-                                findLanguage(m.packet.language).short,
-                                color = hexColor(findLanguage(m.packet.language).accent),
+                                findLanguage(m.textLanguage).short,
+                                color = hexColor(findLanguage(m.textLanguage).accent),
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 0.6.sp,
@@ -131,7 +131,7 @@ fun ReceivedMessageLog(
                             )
                         }
 
-                        Text(m.packet.text, color = AppColor.Text, fontSize = 14.sp, lineHeight = 20.sp)
+                        Text(m.text, color = AppColor.Text, fontSize = 14.sp, lineHeight = 20.sp)
 
                         if (m.state == ReceivedMessageState.ERROR && m.error != null) {
                             Text(m.error, color = AppColor.Danger, fontSize = 11.5.sp, lineHeight = 16.sp)
