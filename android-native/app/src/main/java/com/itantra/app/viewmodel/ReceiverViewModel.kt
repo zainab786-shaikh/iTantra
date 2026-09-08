@@ -1,6 +1,7 @@
 package com.itantra.app.viewmodel
 
 import android.content.Context
+import com.itantra.app.config.DEFAULT_LANGUAGE
 import com.itantra.app.packet.ITantraPacket
 import com.itantra.app.receiver.ReceivedMessage
 import com.itantra.app.receiver.ReceivedMessageState
@@ -45,8 +46,15 @@ class ReceiverViewModel(
     private val _ttsState = MutableStateFlow(INITIAL_TTS_PLAYBACK_STATE)
     val ttsState: StateFlow<TtsPlaybackState> = _ttsState.asStateFlow()
 
+    private val _language = MutableStateFlow(DEFAULT_LANGUAGE.code)
+    val language: StateFlow<String> = _language.asStateFlow()
+
     private val _connected = MutableStateFlow(transport.isConnected())
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
+
+    fun setLanguage(code: String) {
+        _language.value = code
+    }
 
     private val unsubscribeConnection = transport.onConnectionChange { _connected.value = it }
     private val unsubscribeTts = ttsManager.subscribe { state -> onTtsState(state) }

@@ -1,5 +1,7 @@
 package com.itantra.app.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,25 +24,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.itantra.app.config.findLanguage
+import com.itantra.app.config.resolveTtsModelForLanguage
 import com.itantra.app.tts.TtsPlaybackPhase
 import com.itantra.app.tts.TtsPlaybackState
+import com.itantra.app.tts.TtsVoiceStatus
 import com.itantra.app.ui.theme.AppColor
 import com.itantra.app.ui.theme.AppRadius
 import com.itantra.app.ui.theme.AppSizing
 import kotlinx.coroutines.delay
 
 /**
- * Direct port of src/ui/components/TtsStatusCard.tsx. Receiver's speech
- * status - the mirror of the transmitter's ModelCard, but describing
- * playback rather than decode.
+ * Receiver's speech status card — mirrors the transmitter's ModelCard.
+ * Displays live speech playback, missing voice setup indicators, and a one-tap
+ * download button for offline TTS voice packs.
  */
 @Composable
 fun TtsStatusCard(
     state: TtsPlaybackState,
+    selectedLanguage: String = "en-IN",
+    voiceStatus: TtsVoiceStatus? = null,
     onInstallVoice: (String) -> Unit,
     installing: Boolean,
     installPercent: Int,
@@ -57,24 +64,53 @@ fun TtsStatusCard(
         }
     }
 
-    val lang = state.language?.let { findLanguage(it) }
-    val missingVoice = state.phase == TtsPlaybackPhase.ERROR &&
-        (state.error?.lowercase()?.contains("install the required language pack") == true)
+    // Determine target language: active error/playback language takes precedence over selected language
+    val activeLangCode = if (state.phase != TtsPlaybackPhase.IDLE && state.language != null) {
+        state.language
+    } else {
+        selectedLanguage
+    }
+
+    val lang = findLanguage(activeLangCode)
+    val modelDescriptor = resolveTtsModelForLanguage(activeLangCode)
+    val approxMb = modelDescriptor?.approxMb?.let { "%.1f".format(it) } ?: "64.1"
+
+    val isVoiceMissing = voiceStatus == null ||
+        voiceStatus is TtsVoiceStatus.NotInstalled ||
+        voiceStatus is TtsVoiceStatus.Error ||
+        (state.phase == TtsPlaybackPhase.ERROR &&
+            (state.error?.lowercase()?.contains("install") == true ||
+             state.error?.lowercase()?.contains("unavailable") == true ||
+             state.error?.lowercase()?.contains("voice") == true ||
+             state.error?.lowercase()?.contains("model") == true))
+
+    val isDownloading = installing || voiceStatus is TtsVoiceStatus.Downloading
+    val currentPercent = if (installing) installPercent else if (voiceStatus is TtsVoiceStatus.Downloading) voiceStatus.percent else 0
+
+    val barWidth by animateFloatAsState(
+        targetValue = currentPercent / 100f,
+        animationSpec = tween(220),
+        label = "ttsModelProgress",
+    )
 
     val tint = when {
         state.isCritical -> AppColor.Danger
         state.phase == TtsPlaybackPhase.SPEAKING -> AppColor.Live
-        state.phase == TtsPlaybackPhase.ERROR -> AppColor.Danger
         state.phase == TtsPlaybackPhase.LOADING_VOICE -> AppColor.Info
-        else -> AppColor.TextFaint
+        isDownloading -> AppColor.Warn
+        state.phase == TtsPlaybackPhase.ERROR -> AppColor.Danger
+        isVoiceMissing -> AppColor.Warn
+        else -> AppColor.Live
     }
 
     val title = when {
         state.isCritical -> "CRITICAL ALERT"
         state.phase == TtsPlaybackPhase.SPEAKING -> "SPEAKING"
         state.phase == TtsPlaybackPhase.LOADING_VOICE -> "PREPARING VOICE"
+        isDownloading -> "DOWNLOADING VOICE PACK $currentPercent%"
         state.phase == TtsPlaybackPhase.ERROR -> "SPEECH UNAVAILABLE"
-        else -> "READY"
+        isVoiceMissing -> "SETUP NEEDED"
+        else -> "READY FOR SPEECH PLAYBACK"
     }
 
     Column(
@@ -88,46 +124,60 @@ fun TtsStatusCard(
             Box(modifier = Modifier.size(7.dp).background(tint, CircleShape))
             androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp, 0.dp))
             Text(title, color = tint, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, modifier = Modifier.weight(1f))
-            if (state.phase == TtsPlaybackPhase.SPEAKING || state.phase == TtsPlaybackPhase.LOADING_VOICE) {
+            if (state.phase == TtsPlaybackPhase.SPEAKING || state.phase == TtsPlaybackPhase.LOADING_VOICE || isDownloading) {
                 CircularProgressIndicator(modifier = Modifier.size(14.dp), color = tint, strokeWidth = 2.dp)
             }
         }
 
         androidx.compose.foundation.layout.Spacer(Modifier.size(0.dp, 8.dp))
 
-        when (state.phase) {
-            TtsPlaybackPhase.IDLE -> {
+        when {
+            isDownloading -> {
                 Text(
-                    "Listening for incoming transmissions. Speech will play automatically.",
-                    color = AppColor.Text,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
+                    "Downloading offline voice pack for ${lang.label} (~$approxMb MB). Keep the app open — this only happens once.",
+                    color = AppColor.TextMuted,
+                    fontSize = 11.5.sp,
+                    lineHeight = 17.sp,
                 )
+                androidx.compose.foundation.layout.Spacer(Modifier.size(0.dp, 9.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(AppColor.Hairline),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(barWidth)
+                            .height(4.dp)
+                            .background(AppColor.Primary, RoundedCornerShape(2.dp)),
+                    )
+                }
             }
-            TtsPlaybackPhase.LOADING_VOICE, TtsPlaybackPhase.SPEAKING -> {
+            state.phase == TtsPlaybackPhase.LOADING_VOICE || state.phase == TtsPlaybackPhase.SPEAKING -> {
                 Text(state.text ?: "", color = AppColor.Text, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 2)
                 Text(
-                    (lang?.label ?: state.language ?: "") +
-                        (if (state.phase == TtsPlaybackPhase.LOADING_VOICE) " · preparing voice$dots" else ""),
+                    lang.label + (if (state.phase == TtsPlaybackPhase.LOADING_VOICE) " · preparing voice$dots" else ""),
                     color = AppColor.TextFaint,
                     fontSize = 10.5.sp,
                 )
             }
-            TtsPlaybackPhase.ERROR -> {
-                Text(state.error ?: "", color = AppColor.TextMuted, fontSize = 12.sp, lineHeight = 17.sp)
-                if (missingVoice && state.language != null) {
-                    androidx.compose.foundation.layout.Spacer(Modifier.size(0.dp, 2.dp))
+            state.phase == TtsPlaybackPhase.ERROR -> {
+                Text(state.error ?: "Speech error", color = AppColor.TextMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                if (isVoiceMissing) {
+                    androidx.compose.foundation.layout.Spacer(Modifier.size(0.dp, 8.dp))
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(AppSizing.touchTarget)
                             .background(AppColor.Primary.copy(alpha = 0.10f), RoundedCornerShape(AppRadius.md))
                             .border(1.dp, AppColor.Primary.copy(alpha = 0.40f), RoundedCornerShape(AppRadius.md))
-                            .clickable(enabled = !installing) { onInstallVoice(state.language) },
+                            .clickable(enabled = !installing) { onInstallVoice(activeLangCode) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            if (installing) "INSTALLING · $installPercent%" else "INSTALL ${lang?.label?.uppercase() ?: "VOICE"} PACK",
+                            "DOWNLOAD ${lang.label.uppercase()} VOICE PACK · $approxMb MB",
                             color = AppColor.Primary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
@@ -135,6 +185,40 @@ fun TtsStatusCard(
                         )
                     }
                 }
+            }
+            isVoiceMissing -> {
+                Text(
+                    "Offline TTS voice pack (~$approxMb MB) for ${lang.label} isn't set up yet, so incoming transmissions in ${lang.label} cannot be spoken. Download it once for offline playback.",
+                    color = AppColor.TextMuted,
+                    fontSize = 11.5.sp,
+                    lineHeight = 17.sp,
+                )
+                androidx.compose.foundation.layout.Spacer(Modifier.size(0.dp, 8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(AppSizing.touchTarget)
+                        .background(AppColor.Primary.copy(alpha = 0.10f), RoundedCornerShape(AppRadius.md))
+                        .border(1.dp, AppColor.Primary.copy(alpha = 0.40f), RoundedCornerShape(AppRadius.md))
+                        .clickable(enabled = !installing) { onInstallVoice(activeLangCode) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "DOWNLOAD ${lang.label.uppercase()} VOICE PACK · $approxMb MB",
+                        color = AppColor.Primary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.2.sp,
+                    )
+                }
+            }
+            else -> { // IDLE and Installed
+                Text(
+                    "Listening for incoming transmissions. ${lang.label} voice pack is ready for offline playback.",
+                    color = AppColor.Text,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                )
             }
         }
     }

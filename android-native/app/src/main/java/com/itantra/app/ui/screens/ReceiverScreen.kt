@@ -36,6 +36,7 @@ import com.itantra.app.R
 import com.itantra.app.tts.TtsPlaybackPhase
 import com.itantra.app.ui.components.ConnectionBadge
 import com.itantra.app.ui.components.CriticalAlertBanner
+import com.itantra.app.ui.components.LanguageSelector
 import com.itantra.app.ui.components.ReceivedMessageLog
 import com.itantra.app.ui.components.TtsStatusCard
 import com.itantra.app.ui.theme.AppColor
@@ -44,8 +45,8 @@ import com.itantra.app.viewmodel.ReceiverViewModel
 import kotlinx.coroutines.launch
 
 /**
- * Direct port of src/screens/ReceiverScreen.tsx to Jetpack Compose. Mirrors
- * the transmitter's layout (identity/link at top, live state in the
+ * Direct port of src/screens/ReceiverScreen.tsx to Jetpack Compose.
+ * Mirrors the transmitter's layout (identity/link at top, live state in the
  * middle, history below) so the two screens read as one app.
  */
 @Composable
@@ -53,13 +54,18 @@ fun ReceiverScreen(receiver: ReceiverViewModel) {
     val messages by receiver.messages.collectAsState()
     val ttsState by receiver.ttsState.collectAsState()
     val connected by receiver.connected.collectAsState()
+    val language by receiver.language.collectAsState()
     val scope = rememberCoroutineScope()
 
-    // Direct port of ReceiverScreen.tsx's local `installing`/`installPercent`
-    // state - the source keeps this on the screen, not the controller, so
-    // it is mirrored here rather than added to ReceiverViewModel.
     var installing by remember { mutableStateOf(false) }
     var installPercent by remember { mutableIntStateOf(0) }
+
+    val activeLangCode = if (ttsState.phase != TtsPlaybackPhase.IDLE && ttsState.language != null) {
+        ttsState.language!!
+    } else {
+        language
+    }
+    val voiceStatus = receiver.voiceStatus(activeLangCode)
 
     val criticalActive = ttsState.isCritical &&
         (ttsState.phase == TtsPlaybackPhase.SPEAKING || ttsState.phase == TtsPlaybackPhase.LOADING_VOICE)
@@ -100,18 +106,16 @@ fun ReceiverScreen(receiver: ReceiverViewModel) {
 
             TtsStatusCard(
                 state = ttsState,
+                selectedLanguage = language,
+                voiceStatus = voiceStatus,
                 onInstallVoice = { languageCode ->
-                    // Direct port of ReceiverScreen.tsx's handleInstallVoice():
-                    // set installing/percent, await the install, and swallow
-                    // failure here since TtsStatusCard already reflects it via
-                    // ttsState.error on the next spoken attempt.
                     installing = true
                     installPercent = 0
                     scope.launch {
                         try {
                             receiver.installVoice(languageCode) { percent, _ -> installPercent = percent }
                         } catch (e: Exception) {
-                            // Swallowed - see comment above.
+                            // Swallowed - state will reflect on failure.
                         } finally {
                             installing = false
                         }
@@ -119,6 +123,12 @@ fun ReceiverScreen(receiver: ReceiverViewModel) {
                 },
                 installing = installing,
                 installPercent = installPercent,
+            )
+
+            LanguageSelector(
+                value = language,
+                onChange = { receiver.setLanguage(it) },
+                disabled = installing,
             )
 
             ReceivedMessageLog(
