@@ -59,6 +59,16 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
     private var current: SpeakRequest? = null
     private var currentFinish: (() -> Unit)? = null
 
+    /**
+     * Media volume as the operator had it, saved when a CRITICAL forces the
+     * stream to maximum so it can be put back afterwards.
+     *
+     * Null means "not currently boosted". Only the first critical in a burst
+     * saves it, or a second one would record the already-maxed level as the
+     * value to restore and the operator would never get their setting back.
+     */
+    private var volumeBeforeBoost: Int? = null
+
     fun getState(): TtsPlaybackState = state
 
     fun subscribe(listener: TtsStateListener): () -> Unit {
@@ -135,6 +145,10 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
     fun dispose() {
         scope.cancel()
         queue.clear()
+        // The scope is cancelled, so drain()'s finally may never run - put
+        // the operator's volume back here rather than leaving the device
+        // pinned at maximum after the app closes.
+        restoreVolume()
         engine.dispose()
     }
 
@@ -150,6 +164,10 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
         } finally {
             draining = false
             current = null
+            // Restored once the queue is empty rather than after each
+            // message, so a run of criticals does not flap the system volume
+            // up and down between them.
+            restoreVolume()
             resetAudioFocus()
             setState(INITIAL_TTS_PLAYBACK_STATE)
         }
@@ -191,6 +209,7 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
         }
 
         requestAudioFocus(isCritical)
+        if (isCritical) boostVolume() else restoreVolume()
 
         setState(
             TtsPlaybackState(
@@ -214,6 +233,7 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
                 engine.speak(
                     text = request.text,
                     cacheDir = cacheDir,
+                    critical = isCritical,
                     onFinished = { currentFinish?.invoke() },
                     onPlaybackError = { message ->
                         reportError(request, "Speech playback failed.")
@@ -244,6 +264,52 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
     private fun setState(next: TtsPlaybackState) {
         state = next
         for (listener in listeners.toList()) listener(next)
+    }
+
+    /**
+     * Raise the media stream to maximum for a CRITICAL message.
+     *
+     * This is the loudest Android will allow without hijacking another
+     * stream: the alarm channel would be louder still, but it is not the
+     * stream this manager holds focus on, and routing an emergency message
+     * somewhere the operator's media controls cannot reach is a worse
+     * failure than being one notch quieter.
+     *
+     * [restoreVolume] always puts the operator's setting back.
+     */
+    private fun boostVolume() {
+        if (volumeBeforeBoost != null) return
+        try {
+            val stream = AudioManager.STREAM_MUSIC
+            val current = audioManager.getStreamVolume(stream)
+            val max = audioManager.getStreamMaxVolume(stream)
+            if (current >= max) return
+            Log.i(TAG, "critical: media volume $current -> $max (will be restored)")
+            volumeBeforeBoost = current
+            audioManager.setStreamVolume(stream, max, 0)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "cannot raise volume (Do Not Disturb?)", e)
+            // Changing volume is refused while Do Not Disturb is active
+            // unless the app holds notification-policy access, which this
+            // app does not ask for. The message still plays, just at the
+            // operator's own level.
+            volumeBeforeBoost = null
+        } catch (e: Exception) {
+            Log.w(TAG, "cannot raise volume", e)
+            volumeBeforeBoost = null
+        }
+    }
+
+    /** Put the operator's media volume back. Safe to call when nothing was boosted. */
+    private fun restoreVolume() {
+        val previous = volumeBeforeBoost ?: return
+        volumeBeforeBoost = null
+        try {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, previous, 0)
+            Log.i(TAG, "media volume restored to ${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}")
+        } catch (e: Exception) {
+            // Best effort; leaving it loud is preferable to crashing here.
+        }
     }
 
     @Suppress("DEPRECATION")

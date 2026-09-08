@@ -26,6 +26,21 @@
     -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+        A received CRITICAL message vibrates as well as speaking, so it
+        registers when the handset is not being looked at. Normal-protection,
+        no runtime prompt.
+    -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!--
+        A CRITICAL message raises the media stream to maximum for the length
+        of that message, then puts the operator's level back. Without this
+        permission setStreamVolume is ignored silently - no exception, no
+        effect - which is exactly how it failed the first time.
+    -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

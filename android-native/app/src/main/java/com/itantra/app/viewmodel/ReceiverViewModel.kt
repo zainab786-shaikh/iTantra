@@ -3,7 +3,9 @@ package com.itantra.app.viewmodel
 import android.content.Context
 import com.itantra.app.codec.ITantraCodec
 import com.itantra.app.config.DEFAULT_LANGUAGE
+import com.itantra.app.device.CriticalAlert
 import com.itantra.app.packet.ITantraPacket
+import com.itantra.app.packet.PacketPriority
 import com.itantra.app.receiver.ReceivedMessage
 import com.itantra.app.receiver.ReceivedMessageState
 import com.itantra.app.transport.Transport
@@ -97,6 +99,14 @@ class ReceiverViewModel(
         // repeated id produced a visible row that was never spoken - the
         // screen said one thing and the speaker did another.
         if (_messages.value.any { it.packet.id == packet.id }) return
+
+        // Fired on arrival, before decoding or speech is attempted, and
+        // regardless of whether either succeeds. A CRITICAL that cannot be
+        // spoken - no voice pack, audio focus lost to a call - must still be
+        // felt.
+        if (packet.priority == PacketPriority.CRITICAL) {
+            CriticalAlert.vibrate(appContext)
+        }
 
         // Decoded once, here. Everything downstream - the log row, the
         // language chip, the voice - reads these two values rather than

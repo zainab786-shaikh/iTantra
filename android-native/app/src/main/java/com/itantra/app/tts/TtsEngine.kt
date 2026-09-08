@@ -1,5 +1,6 @@
 package com.itantra.app.tts
 
+import android.media.AudioAttributes
 import android.media.MediaPlayer
 import com.itantra.app.config.TtsModelDescriptor
 import com.k2fsa.sherpa.onnx.GeneratedAudio
@@ -89,6 +90,15 @@ class TtsEngine {
         cacheDir: File,
         onFinished: () -> Unit,
         onPlaybackError: (String) -> Unit,
+        /**
+         * A CRITICAL message plays at the player's full scale.
+         *
+         * This is only half of "as loud as Android permits" — it removes any
+         * per-player attenuation, while [TtsManager] separately raises the
+         * media stream itself. Both are needed: a player at 1.0 on a stream
+         * turned down to 2/15 is still barely audible.
+         */
+        critical: Boolean = false,
     ): SpeakResult {
         val engine = checkNotNull(tts) { "No TTS voice loaded" }
 
@@ -112,6 +122,18 @@ class TtsEngine {
         val mp = MediaPlayer()
         player = mp
         try {
+            // Declared explicitly rather than left to the default. SPEECH
+            // content lets the platform apply speech-appropriate processing,
+            // and naming MEDIA usage keeps playback on the same stream the
+            // manager requests audio focus for - they have to agree, or the
+            // focus request governs a stream the audio is not on.
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            mp.setVolume(1f, 1f)
             mp.setDataSource(wavFile.absolutePath)
             mp.setOnCompletionListener { onFinished() }
             mp.setOnErrorListener { _, what, extra ->

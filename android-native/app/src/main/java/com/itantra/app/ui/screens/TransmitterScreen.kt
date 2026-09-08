@@ -2,6 +2,8 @@ package com.itantra.app.ui.screens
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,6 +86,7 @@ fun TransmitterScreen(
     val connected by transmitter.connected.collectAsState()
     val level by transmitter.level.collectAsState()
     val modelStatus by transmitter.modelStatus.collectAsState()
+    val sendAsCritical by transmitter.sendAsCritical.collectAsState()
 
     val status = statusMeta(transcriptionState.status)
     val busy = transcriptionState.status == TransmitterStatus.TRANSCRIBING
@@ -221,6 +224,14 @@ fun TransmitterScreen(
                 }
             }
 
+            // Priority override. Placed directly above the PTT because it
+            // changes what pressing the PTT does, and an operator should not
+            // have to remember a setting that lives elsewhere on the screen.
+            CriticalToggle(
+                enabled = sendAsCritical,
+                onToggle = { transmitter.setSendAsCritical(!sendAsCritical) },
+            )
+
             // Control
             Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                 PttButton(
@@ -255,6 +266,76 @@ fun TransmitterScreen(
             LanguageSelector(value = language, onChange = { transmitter.setLanguage(it) }, disabled = isActive)
 
             PacketLog(entries = log, onClear = { transmitter.clearLog() })
+        }
+    }
+}
+
+/**
+ * Latching "send as critical" control.
+ *
+ * Deliberately loud when armed: it overrides the automatic classifier for
+ * every subsequent transmission, and a mode that silently escalates traffic
+ * is worse than one that is impossible to miss.
+ */
+@Composable
+private fun CriticalToggle(enabled: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (enabled) AppColor.Danger.copy(alpha = 0.16f) else AppColor.Surface,
+                RoundedCornerShape(AppRadius.md),
+            )
+            .border(
+                1.dp,
+                if (enabled) AppColor.Danger.copy(alpha = 0.65f) else AppColor.Hairline,
+                RoundedCornerShape(AppRadius.md),
+            )
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .background(
+                    if (enabled) AppColor.Danger else androidx.compose.ui.graphics.Color.Transparent,
+                    RoundedCornerShape(4.dp),
+                )
+                .border(
+                    1.5.dp,
+                    if (enabled) AppColor.Danger else AppColor.TextFaint,
+                    RoundedCornerShape(4.dp),
+                ),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "SEND AS CRITICAL",
+                color = if (enabled) AppColor.Danger else AppColor.TextMuted,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.2.sp,
+            )
+            Text(
+                if (enabled) {
+                    "Every transmission is marked CRITICAL until switched off."
+                } else {
+                    "Priority is set automatically from what you say."
+                },
+                color = AppColor.TextFaint,
+                fontSize = 10.5.sp,
+                lineHeight = 14.sp,
+            )
+        }
+        if (enabled) {
+            Text(
+                "ARMED",
+                color = AppColor.Danger,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.sp,
+            )
         }
     }
 }

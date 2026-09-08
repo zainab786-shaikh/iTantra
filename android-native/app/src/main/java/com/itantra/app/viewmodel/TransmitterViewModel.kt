@@ -18,6 +18,7 @@ import com.itantra.app.core.TranscriptionResult
 import com.itantra.app.core.TranscriptionState
 import com.itantra.app.core.TransmitterStatus
 import com.itantra.app.device.DeviceId
+import com.itantra.app.packet.PacketPriority
 import com.itantra.app.packet.buildPacket
 import com.itantra.app.stt.NonSpeechFilter
 import com.itantra.app.stt.SttEngineKind
@@ -109,6 +110,23 @@ class TransmitterViewModel(
     private val _language = MutableStateFlow(DEFAULT_LANGUAGE.code)
     val language: StateFlow<String> = _language.asStateFlow()
 
+    /**
+     * Operator override: send everything as CRITICAL until switched off.
+     *
+     * A latched mode rather than a one-shot, because a single press of the
+     * PTT can produce several utterances - the segmenter flushes on each
+     * pause - and a flag that cleared after the first would send the rest of
+     * the same breath at normal priority. It is off by default and shown in
+     * the danger colour while active.
+     *
+     * This overrides the keyword classifier upward only, by supplying
+     * buildPacket's existing `priority` argument. The automatic
+     * classification is untouched: with the mode off, priority is derived
+     * exactly as before.
+     */
+    private val _sendAsCritical = MutableStateFlow(false)
+    val sendAsCritical: StateFlow<Boolean> = _sendAsCritical.asStateFlow()
+
     private val _pauseMs = MutableStateFlow(DEFAULT_VAD_CONFIG.endOfSpeechSilenceMs)
     val pauseMs: StateFlow<Int> = _pauseMs.asStateFlow()
 
@@ -174,6 +192,10 @@ class TransmitterViewModel(
         val resolved = findLanguage(code).code
         _language.value = resolved
         scope.launch { resolveLanguageModel(resolved) }
+    }
+
+    fun setSendAsCritical(enabled: Boolean) {
+        _sendAsCritical.value = enabled
     }
 
     fun setPauseMs(ms: Int) {
@@ -336,6 +358,10 @@ class TransmitterViewModel(
                 language = languageCode,
                 senderId = _senderId.value,
                 codec = codec,
+                // Null leaves the keyword classifier in charge, which is the
+                // default path. The override can only raise a message to
+                // CRITICAL, never lower one the classifier already flagged.
+                priority = if (_sendAsCritical.value) PacketPriority.CRITICAL else null,
             )
             val engineKind = sttProvider.status.kind
             val delivered = transport.sendPacket(built.packet)
