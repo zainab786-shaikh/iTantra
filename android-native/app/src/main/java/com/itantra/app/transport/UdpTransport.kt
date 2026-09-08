@@ -235,6 +235,22 @@ class UdpTransport(
         return next
     }
 
+    /**
+     * Drop the learned address and fall back to whatever else we know.
+     *
+     * Deliberately does not clear [lastHeardAt]: link state stays "down"
+     * until a frame genuinely arrives, so forgetting an address never makes
+     * the badge claim a connection that does not exist.
+     */
+    private fun forgetLearnedPeer() {
+        if (learnedPeer == null) return
+        learnedPeer = null
+        // Re-resolve the typed host: on a new network the operator's entry is
+        // the only address we have, and it may now be reachable again.
+        _configuredHost.value.takeIf { it.isNotBlank() }?.let { applyConfiguredHost(it) }
+        publishPeer()
+    }
+
     private fun applyConfiguredHost(host: String) {
         configuredPeer = try {
             InetSocketAddress(InetAddress.getByName(host), port)
@@ -367,10 +383,32 @@ class UdpTransport(
 
             // Re-resolved rather than cached: the operator may join the
             // hotspot after the app is already running.
-            _localAddress.value = resolveLocalAddress()
+            val localNow = resolveLocalAddress()
+            if (localNow != _localAddress.value) {
+                // Our own address changed, so the network underneath us
+                // changed. Any address we learned on the old network is
+                // meaningless now - and worse than meaningless, because a
+                // learned peer outranks the configured one, so keeping it
+                // would aim every frame at somewhere unreachable.
+                Log.i(TAG, "local address ${_localAddress.value} -> $localNow; forgetting learned peer")
+                forgetLearnedPeer()
+            }
+            _localAddress.value = localNow
 
             val heard = if (lastHeardAt == 0L) null else now - lastHeardAt
             _lastHeardMs.value = heard
+
+            // A peer we have not heard from for longer than the timeout is
+            // not merely "down" - the address itself is suspect. Dropping it
+            // lets the configured host, or broadcast, take over again so the
+            // link can re-learn. Without this the transport aims at a dead
+            // address forever and cannot recover without an app restart,
+            // which is exactly what a network toggle used to cause.
+            if (heard != null && heard >= PEER_TIMEOUT_MS && learnedPeer != null) {
+                Log.i(TAG, "peer silent for ${heard}ms; forgetting learned address")
+                forgetLearnedPeer()
+            }
+
             updateConnected(heard != null && heard < PEER_TIMEOUT_MS)
 
             delay(TICK_MS)
