@@ -3,6 +3,7 @@ package com.itantra.app.codec
 import com.itantra.app.config.LANGUAGES
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -210,8 +211,15 @@ class CodecTest {
     @Test
     fun `PHRASE falls back to the sender's language when the receiver has no surface`() {
         val encoded = codec.encode("fire at north gate", "en-IN")
-        // Bengali has no surface authored for this id yet.
-        val decoded = codec.decode(encoded.mode, encoded.bytes, "en-IN", "bn-IN")
+        // Gujarati has no surfaces in the phrase table, so a Gujarati-
+        // configured receiver cannot render this id in its own language. It
+        // must still hear the message, in the sender's.
+        val receiver = "gu-IN"
+        assertNull(
+            "this test needs a language the phrase table does not cover",
+            PhraseDictionary.surfaceFor(1, receiver),
+        )
+        val decoded = codec.decode(encoded.mode, encoded.bytes, "en-IN", receiver)
         assertEquals("fire at north gate", decoded.text)
         assertEquals("en-IN", decoded.languageCode)
     }

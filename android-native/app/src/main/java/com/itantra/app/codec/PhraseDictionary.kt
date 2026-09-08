@@ -106,7 +106,11 @@ object PhraseDictionary {
         10 to mapOf(
             "en-IN" to "injured man down",
             "hi-IN" to "घायल सैनिक गिरा है",
-            "ta-IN" to "காயமடைந்தவர் விழுந்தார்",
+            // "காயம் அடைந்தார்", not the compound "காயமடைந்தவர்": compounding
+            // absorbs the virama on ம, so the HIGH keyword "காயம்" stops being
+            // a substring and this phrase alone would have gone out as NORMAL
+            // from a Tamil operator while every other language sent HIGH.
+            "ta-IN" to "வீரர் காயம் அடைந்தார்",
             "mr-IN" to "जखमी सैनिक पडला आहे",
             "bn-IN" to "আহত সৈনিক পড়ে গেছে",
         ),
