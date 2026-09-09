@@ -16,6 +16,23 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags("-std=c++17 -frtti -fexceptions")
+                arguments("-DANDROID_STL=c++_shared")
+            }
+        }
+        ndk {
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64"))
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {

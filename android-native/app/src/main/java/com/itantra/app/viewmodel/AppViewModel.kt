@@ -31,6 +31,12 @@ import com.itantra.app.transport.UdpTransport
  */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
+    init {
+        if (com.itantra.app.native.NativeBridge.isNativeLoaded()) {
+            android.util.Log.i("AppViewModel", "C++ Native Engine initialized: ${com.itantra.app.native.NativeBridge.getNativeVersion()}")
+        }
+    }
+
     /**
      * Flip to false to fall back to the in-app loopback.
      *
