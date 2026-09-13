@@ -19,7 +19,7 @@ add_library(
         ${ITANTRA_CORE_SOURCES}
 )
 
-target_include_directories(itantra-native PRIVATE "${ITANTRA_CPP_DIR}")
+target_include_directories(itantra-native PRIVATE "${ITANTRA_CPP_DIR}" "${ITANTRA_CORE_DIR}")
 
 find_library(
         log-lib

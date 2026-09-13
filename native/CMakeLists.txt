@@ -22,6 +22,7 @@ if(NOT EXISTS "${ITANTRA_CPP_DIR}/sources.cmake")
             "The host build reuses the Android build's sources; it does not keep its own.")
 endif()
 
+# Defines ITANTRA_CORE_DIR (native/src), ITANTRA_CORE_SOURCES, ITANTRA_JNI_SOURCES.
 include("${ITANTRA_CPP_DIR}/sources.cmake")
 
 # ITANTRA_JNI_SOURCES is intentionally not used here. jni.h and android/log.h
@@ -29,21 +30,73 @@ include("${ITANTRA_CPP_DIR}/sources.cmake")
 # logic of its own to test (handoff: "JNI BOUNDARY" — coarse, one call per
 # clause).
 
-if(ITANTRA_CORE_SOURCES)
-    add_library(itantra-core STATIC ${ITANTRA_CORE_SOURCES})
-    target_include_directories(itantra-core PUBLIC "${ITANTRA_CPP_DIR}")
+if(MSVC)
+    set(ITANTRA_HOST_WARNINGS /W4 /WX /permissive-)
 else()
-    # Phase 0: the portable core is empty by design — Phase 0 is
-    # reconciliation only, "No new logic". Configuring cleanly now means
-    # Phase 1 adds files to sources.cmake and the host build starts working
-    # with no further build-system work.
-    message(STATUS
-            "itantra: portable core is empty (expected in Phase 0). "
-            "Phase 1 populates ITANTRA_CORE_SOURCES in sources.cmake.")
+    set(ITANTRA_HOST_WARNINGS -Wall -Wextra -Wconversion -Wsign-conversion -Werror)
 endif()
 
-# Phase 1 adds here:
-#   - the test framework
-#   - enable_testing() and the [H] unit / conformance / bench targets
-#   - the C-04 no-float static check, as a BUILD STEP that fails the build
-#     (implementation plan, Phase 1 Notes)
+# ---------------------------------------------------------------------------
+# C-04 — no floating point in the deterministic core, as a BUILD STEP.
+#
+# validation-benchmark-contract §5.1: "C-04 is automatable as a build step.
+# Make it one." itantra-core depends on the check, so no core library and no
+# test binary can be built while a violation exists.
+# ---------------------------------------------------------------------------
+add_executable(itantra-c04-check tools/c04_no_float.cpp)
+target_compile_options(itantra-c04-check PRIVATE ${ITANTRA_HOST_WARNINGS})
+
+file(GLOB_RECURSE ITANTRA_C04_FILES CONFIGURE_DEPENDS
+        "${ITANTRA_CORE_DIR}/*.h"
+        "${ITANTRA_CORE_DIR}/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/unit/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/unit/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/conformance/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/conformance/*.cpp")
+list(APPEND ITANTRA_C04_FILES "${CMAKE_CURRENT_SOURCE_DIR}/test/itest.h")
+
+# A core source outside native/src would silently escape the check.
+foreach(core_source IN LISTS ITANTRA_CORE_SOURCES)
+    if(NOT core_source IN_LIST ITANTRA_C04_FILES)
+        message(FATAL_ERROR "C-04: core source ${core_source} is not covered by the "
+                            "no-float check. Core sources must live under ${ITANTRA_CORE_DIR}.")
+    endif()
+endforeach()
+
+set(ITANTRA_C04_STAMP "${CMAKE_CURRENT_BINARY_DIR}/c04.stamp")
+add_custom_command(
+        OUTPUT "${ITANTRA_C04_STAMP}"
+        COMMAND itantra-c04-check --self-test
+        COMMAND itantra-c04-check ${ITANTRA_C04_FILES}
+        COMMAND "${CMAKE_COMMAND}" -E touch "${ITANTRA_C04_STAMP}"
+        DEPENDS itantra-c04-check ${ITANTRA_C04_FILES}
+        COMMENT "C-04: checking the deterministic core for floating point"
+        VERBATIM)
+add_custom_target(itantra-c04 ALL DEPENDS "${ITANTRA_C04_STAMP}")
+
+# ---------------------------------------------------------------------------
+# Portable core — the same translation units as libitantra-native.so.
+# ---------------------------------------------------------------------------
+add_library(itantra-core STATIC ${ITANTRA_CORE_SOURCES})
+target_include_directories(itantra-core PUBLIC "${ITANTRA_CORE_DIR}")
+target_compile_options(itantra-core PRIVATE ${ITANTRA_HOST_WARNINGS})
+add_dependencies(itantra-core itantra-c04)
+
+# ---------------------------------------------------------------------------
+# [H] tests. Run with:  ctest --test-dir native/build -C Debug
+# ---------------------------------------------------------------------------
+enable_testing()
+
+add_test(NAME C-04 COMMAND itantra-c04-check ${ITANTRA_C04_FILES})
+add_test(NAME C-04.self-test COMMAND itantra-c04-check --self-test)
+
+function(itantra_host_test test_name target source)
+    add_executable(${target} ${source})
+    target_link_libraries(${target} PRIVATE itantra-core)
+    target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+    target_compile_options(${target} PRIVATE ${ITANTRA_HOST_WARNINGS})
+    add_test(NAME ${test_name} COMMAND ${target})
+endfunction()
+
+itantra_host_test(unit.bitio bitio_test test/unit/bitio_test.cpp)
+itantra_host_test(unit.hash  hash_test  test/unit/hash_test.cpp)

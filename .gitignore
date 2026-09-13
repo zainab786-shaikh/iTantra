@@ -30,6 +30,9 @@
 # pinned AAR versions, never hand-authored.
 /android-native/app/src/main/jniLibs/
 
+# native/: host CMake build tree (native/CMakeLists.txt)
+/native/build/
+
 # scratch / temp / large model files
 .scratch/
 asr_release_tmp.json

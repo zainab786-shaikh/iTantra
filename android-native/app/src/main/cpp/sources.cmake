@@ -10,21 +10,27 @@
 # (validation-benchmark-contract §5.1, §3 "Host results do not substitute for
 # device results" — but they do have to be testing the same code).
 #
-# Paths are relative to this directory. ITANTRA_CPP_DIR is set by whichever
-# entry point includes this file.
+# Where the files live:
+#
+#   portable core   native/src/        implementation plan §0.2 native tree
+#   JNI boundary    this directory
+#
+# ITANTRA_CPP_DIR is set by whichever entry point includes this file.
+# ITANTRA_CORE_DIR is located relative to THIS file, so both entry points
+# resolve identical absolute paths. It is also the core include root:
+# `#include "common/bitio.h"`.
+
+get_filename_component(ITANTRA_CORE_DIR
+        "${CMAKE_CURRENT_LIST_DIR}/../../../../../native/src" ABSOLUTE)
 
 # ---------------------------------------------------------------------------
 # Portable core. Compiles on host and on Android. No JNI, no Android headers.
-#
-# Populated from Phase 1 onward:
-#   common/  coder/  packet/  crypto/  context/
-#   lang/    tier1/  tier2/   select/  receiver/
-#
-# Empty in Phase 0 by design — the implementation plan's Phase 0 is
-# reconciliation only, "No new logic".
+# Paths relative to native/src. Every file here is covered by the C-04
+# no-float build step (native/CMakeLists.txt).
 # ---------------------------------------------------------------------------
 set(ITANTRA_CORE_SOURCES
-        # (Phase 1 adds itantra/common/bitio.cpp, itantra/common/hash.cpp, ...)
+        common/bitio.cpp
+        common/hash.cpp
 )
 
 # ---------------------------------------------------------------------------
@@ -37,5 +43,5 @@ set(ITANTRA_JNI_SOURCES
         itantra-native.cpp
 )
 
-list(TRANSFORM ITANTRA_CORE_SOURCES PREPEND "${ITANTRA_CPP_DIR}/")
+list(TRANSFORM ITANTRA_CORE_SOURCES PREPEND "${ITANTRA_CORE_DIR}/")
 list(TRANSFORM ITANTRA_JNI_SOURCES PREPEND "${ITANTRA_CPP_DIR}/")

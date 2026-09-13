@@ -99,8 +99,9 @@ source list. Two entry points include it and neither owns it:
 | `android-native/app/src/main/cpp/CMakeLists.txt` | `libitantra-native.so` (AGP) | `ITANTRA_JNI_SOURCES` + `ITANTRA_CORE_SOURCES` |
 | `native/CMakeLists.txt` | `[H]` host tests | `ITANTRA_CORE_SOURCES` only |
 
-`ITANTRA_CORE_SOURCES` is empty in Phase 0 and is populated from Phase 1. The
-host build excludes the JNI sources: `jni.h` and `android/log.h` do not exist on
+`ITANTRA_CORE_SOURCES` was empty in Phase 0. From Phase 1 it lists files under
+`native/src/` (the plan's §0.2 tree), located relative to `sources.cmake` so
+both entry points resolve the same paths. The host build excludes the JNI sources: `jni.h` and `android/log.h` do not exist on
 the host, and the JNI layer is a thin adapter with no logic of its own to test.
 
 The split exists so a host test exercises the same translation units that reach
@@ -110,7 +111,7 @@ across ≥3 SoC vendors) would be testing different code.
 NDK is pinned to **27.0.12077973** in `app/build.gradle.kts`. The Phase 3 golden
 vector freeze is a contract against a specific toolchain.
 
-> **Open:** there is no host C++ compiler installed on the current development
-> machine (no MSVC, clang, gcc, or ninja on PATH). `native/CMakeLists.txt` is
-> written and its source-list mechanism is verified, but it cannot be configured
-> until one exists. This blocks every `[H]` test from Phase 1 onward.
+> **Resolved (Phase 1):** the host toolchain is Visual Studio 2026 Community,
+> MSVC 19.51, CMake 4.3.1 (the copy bundled with VS, not on PATH), Windows SDK
+> 10.0.28000.0. `native/CMakeLists.txt` configures and builds, and runs the
+> `[H]` suite through CTest.
