@@ -96,7 +96,7 @@ fun ReceivedMessageLog(
             }
         } else {
             messages.forEach { m ->
-                val critical = m.packet.priority == PacketPriority.CRITICAL
+                val critical = m.priority == PacketPriority.CRITICAL
                 val speaking = m.state == ReceivedMessageState.SPEAKING
 
                 Row(
@@ -114,12 +114,12 @@ fun ReceivedMessageLog(
                             RoundedCornerShape(AppRadius.md),
                         ),
                 ) {
-                    Box(modifier = Modifier.width(3.dp).background(hexColor(PRIORITY_COLORS.getValue(m.packet.priority))))
+                    Box(modifier = Modifier.width(3.dp).background(hexColor(PRIORITY_COLORS.getValue(m.priority))))
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                             Text(
-                                m.packet.priority.value,
-                                color = hexColor(PRIORITY_COLORS.getValue(m.packet.priority)),
+                                m.priority.value,
+                                color = hexColor(PRIORITY_COLORS.getValue(m.priority)),
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 1.sp,
@@ -175,27 +175,21 @@ fun ReceivedMessageLog(
                                 if (ratio != null) {
                                     Text(
                                         formatRatio(ratio),
-                                        color = modeColor(m.packet.mode),
+                                        color = AppColor.Accent,
                                         fontSize = 10.5.sp,
                                         fontWeight = FontWeight.Black,
                                     )
                                 }
-                                ModeChip(m.packet.mode)
-
-                                // Only PHRASE crosses languages, and when it
-                                // does this is the whole point: an id went
-                                // over the link and came out as different
-                                // words in a different script.
-                                if (m.textLanguage != m.packet.language) {
-                                    Text(
-                                        "${findLanguage(m.packet.language).short} → " +
-                                            findLanguage(m.textLanguage).short,
-                                        color = AppColor.Primary,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Black,
-                                        letterSpacing = 0.6.sp,
-                                    )
-                                }
+                                // The mode chip and the sender→receiver language
+                                // arrow stood here. Both read fields that left
+                                // the outer frame in Phase 0 (`packet §1.3`).
+                                //
+                                // Phase 11 restores them from the decoded native
+                                // payload, where the rule is per tier
+                                // (`receiver §7.2`): Tier 1 renders in the
+                                // RECEIVER's language, Tier 2 in the SENDER's —
+                                // and `receiver §7.3` says the operator should
+                                // always be shown which of the two delivered.
                             }
                         }
 
@@ -261,7 +255,7 @@ fun ReceivedMessageLog(
                                 // Locale-aware, matching the source's
                                 // Date.toLocaleTimeString().
                                 DateFormat.getTimeInstance(DateFormat.MEDIUM, Locale.getDefault())
-                                    .format(Date(m.packet.timestamp)) + " · ${m.packet.senderId}",
+                                    .format(Date(m.packet.localTimestamp)) + " · ${m.packet.senderId}",
                                 color = AppColor.TextFaint,
                                 fontSize = 10.sp,
                             )

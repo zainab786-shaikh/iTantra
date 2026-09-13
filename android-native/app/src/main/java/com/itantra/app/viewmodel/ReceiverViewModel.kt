@@ -1,9 +1,7 @@
 package com.itantra.app.viewmodel
 
 import android.content.Context
-import com.itantra.app.codec.ITantraCodec
 import com.itantra.app.config.DEFAULT_LANGUAGE
-import com.itantra.app.device.CriticalAlert
 import com.itantra.app.packet.ITantraPacket
 import com.itantra.app.packet.PacketPriority
 import com.itantra.app.receiver.ReceivedMessage
@@ -38,8 +36,6 @@ class ReceiverViewModel(
 ) {
     private val appContext = context.applicationContext
     val transportName: String = transport.name
-    /** Bytes -> text. The only thing that turns an arriving payload into words. */
-    private val codec = ITantraCodec()
     private val ttsManager = TtsManager(appContext, File(appContext.filesDir, "itantra-tts-models"))
 
     /** Maps a TtsManager request id back to the history row it belongs to - identity for normal messages, a synthetic id for replays. */
@@ -100,65 +96,36 @@ class ReceiverViewModel(
         // screen said one thing and the speaker did another.
         if (_messages.value.any { it.packet.id == packet.id }) return
 
-        // Fired on arrival, before decoding or speech is attempted, and
-        // regardless of whether either succeeds. A CRITICAL that cannot be
-        // spoken - no voice pack, audio focus lost to a call - must still be
-        // felt.
-        if (packet.priority == PacketPriority.CRITICAL) {
-            CriticalAlert.vibrate(appContext)
-        }
-
-        // Decoded once, here. Everything downstream - the log row, the
-        // language chip, the voice - reads these two values rather than
-        // re-deriving them, which is the whole reason decode() returns the
-        // language alongside the text (see codec.DecodedText).
-        val decoded = try {
-            codec.decode(packet.mode, packet.payload, packet.language, _language.value)
-        } catch (e: Exception) {
-            // A payload this build cannot decode is not spoken and not
-            // guessed at; it is shown as a failed message.
-            val failed = ReceivedMessage(
-                packet = packet,
-                text = "",
-                textLanguage = packet.language,
-                state = ReceivedMessageState.ERROR,
-                error = "This message could not be decoded.",
-                receivedAt = System.currentTimeMillis(),
-            )
-            _messages.value = (listOf(failed) + _messages.value).let {
-                if (it.size > MAX_HISTORY) it.subList(0, MAX_HISTORY) else it
-            }
-            return
-        }
-
-        val entry = ReceivedMessage(
+        // PHASE 0: nothing here can decode this payload.
+        //
+        // The prototype called ITantraCodec.decode(packet.mode, ...). Both
+        // halves of that call are gone: RAW / PACK7 / PHRASE are replaced by
+        // the native tiers (`packet §1.4`, `tier §9.2`), and `mode`, `priority`
+        // and `language` left the outer frame with `packet §1.3` - they are
+        // inside the native payload now, and Kotlin must not parse it
+        // (`packet §1.1`, `receiver §1.1`).
+        //
+        // The native receive pipeline that replaces this is Phase 10, reachable
+        // from Kotlin in Phase 11. Until then every arriving packet is reported
+        // as undecodable, which is exactly what it is.
+        //
+        // The critical-alert vibration moved with it. Priority is a 1-bit field
+        // inside the payload (`packet §3.1`), so it cannot be known before the
+        // decode, and guessing it would be the "fluent, confident, wrong"
+        // failure the architecture exists to prevent (`context §19.2`).
+        val failed = ReceivedMessage(
             packet = packet,
-            text = decoded.text,
-            textLanguage = decoded.languageCode,
-            state = ReceivedMessageState.RECEIVED,
-            error = null,
+            text = "",
+            textLanguage = _language.value,
+            priority = PacketPriority.NORMAL,
+            state = ReceivedMessageState.ERROR,
+            error = "No native decoder yet (Phase 11).",
             receivedAt = System.currentTimeMillis(),
         )
-        val withNew = (listOf(entry) + _messages.value).let {
+        _messages.value = (listOf(failed) + _messages.value).let {
             if (it.size > MAX_HISTORY) it.subList(0, MAX_HISTORY) else it
         }
-        _messages.value = withNew
-
-        correlation[packet.id] = packet.id
-        // decoded.languageCode, NOT packet.language: a PHRASE message was
-        // rendered in this device's own language and must be spoken in this
-        // device's own voice.
-        ttsManager.speakText(decoded.text, decoded.languageCode, packet.priority, packet.id)
-
-        // Reflect "handed to the queue" promptly; the subscription above
-        // takes over from here once the manager actually starts on it.
-        _messages.value = _messages.value.map { m ->
-            if (m.packet.id == packet.id && m.state == ReceivedMessageState.RECEIVED) {
-                m.copy(state = ReceivedMessageState.QUEUED)
-            } else {
-                m
-            }
-        }
+        return
     }
 
     fun clearHistory() {
@@ -173,7 +140,7 @@ class ReceiverViewModel(
         correlation[replayId] = packetId
         // Reads the already-decoded row rather than decoding again, so a
         // replay can never disagree with what was originally spoken.
-        ttsManager.speakText(entry.text, entry.textLanguage, entry.packet.priority, replayId)
+        ttsManager.speakText(entry.text, entry.textLanguage, entry.priority, replayId)
 
         _messages.value = _messages.value.map { m ->
             if (m.packet.id == packetId) m.copy(state = ReceivedMessageState.QUEUED, error = null) else m

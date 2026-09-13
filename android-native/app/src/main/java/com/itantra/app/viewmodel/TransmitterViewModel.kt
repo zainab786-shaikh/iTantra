@@ -11,7 +11,6 @@ import com.itantra.app.config.SttModelDescriptor
 import com.itantra.app.config.VadConfig
 import com.itantra.app.config.findLanguage
 import com.itantra.app.config.resolveModelForLanguage
-import com.itantra.app.codec.ITantraCodec
 import com.itantra.app.core.INITIAL_TRANSCRIPTION_STATE
 import com.itantra.app.core.LogEntry
 import com.itantra.app.core.TranscriptionResult
@@ -26,6 +25,7 @@ import com.itantra.app.stt.SttEngineProvider
 import com.itantra.app.stt.SttModelManager
 import com.itantra.app.stt.SttModelStatus
 import com.itantra.app.stt.checkSttModelStatus
+import com.itantra.app.transport.ThrottleControl
 import com.itantra.app.transport.Transport
 import com.itantra.app.vad.AudioSegment
 import com.itantra.app.vad.EnergyVad
@@ -73,7 +73,6 @@ class TransmitterViewModel(
 
     private val vad = EnergyVad()
     /** Text -> bytes. Owned here because encoding is part of packaging an utterance. */
-    private val codec = ITantraCodec()
     private val sttProvider = SttEngineProvider(modelsRootDir)
     private val sttModelManager = SttModelManager(modelsRootDir)
     private var vadConfig: VadConfig = DEFAULT_VAD_CONFIG.copy(endOfSpeechSilenceMs = DEFAULT_VAD_CONFIG.endOfSpeechSilenceMs)
@@ -353,24 +352,43 @@ class TransmitterViewModel(
                 forced = segment.forced,
             )
 
+            // PHASE 0: there is no payload producer yet.
+            //
+            // `packet §1.4` and the implementation plan both retire the
+            // prototype's RAW / PACK7 / PHRASE generation here, and the native
+            // encoder that replaces it does not exist until Phase 3 (nor is it
+            // reachable from Kotlin until Phase 11). An empty payload is the
+            // honest intermediate state, and it is the one the plan predicts:
+            // "Expect the app to be temporarily non-functional end-to-end.
+            // That is correct - the payload producer does not exist yet."
+            val nativePayload = ByteArray(0)
+
             val built = buildPacket(
                 text = text,
                 language = languageCode,
                 senderId = _senderId.value,
-                codec = codec,
+                payload = nativePayload,
                 // Null leaves the keyword classifier in charge, which is the
                 // default path. The override can only raise a message to
                 // CRITICAL, never lower one the classifier already flagged.
                 priority = if (_sendAsCritical.value) PacketPriority.CRITICAL else null,
             )
             val engineKind = sttProvider.status.kind
+
+            // The throttle can no longer read the source size off the packet
+            // (`packet §1.3`), so the sender states it. Conditional because
+            // nothing above the transport is supposed to know whether the
+            // throttle decorator is in the chain at all.
+            (transport as? ThrottleControl)?.noteOutbound(built.originalBytes)
             val delivered = transport.sendPacket(built.packet)
 
             _log.value = (listOf(
                 LogEntry(
                     packet = built.packet,
                     text = built.text,
-                    roundTripOk = built.roundTripOk,
+                    originalBytes = built.originalBytes,
+                    priority = built.priority,
+                    language = built.language,
                     delivered = delivered,
                     latencyMs = latencyMs,
                     simulated = engineKind == SttEngineKind.SIMULATED,

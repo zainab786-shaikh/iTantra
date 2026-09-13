@@ -10,6 +10,12 @@ android {
     // minSdk 24, targetSdk 34, compileSdk 36. Not chosen independently.
     compileSdk = 36
 
+    // Pinned, not left to AGP's default. The golden vectors frozen in Phase 3
+    // are a contract against a specific toolchain (validation-benchmark-contract
+    // §2.2, §7.2): an unpinned NDK makes that freeze unreproducible on another
+    // machine, and C-01 exists to prove two builds agree on bytes.
+    ndkVersion = "27.0.12077973"
+
     defaultConfig {
         applicationId = "com.itantra.app"
         minSdk = 24

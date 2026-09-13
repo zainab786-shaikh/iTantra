@@ -74,19 +74,19 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                         .clip(RoundedCornerShape(AppRadius.md))
                         .background(AppColor.Surface),
                 ) {
-                    Box(modifier = Modifier.width(3.dp).background(hexColor(PRIORITY_COLORS.getValue(entry.packet.priority))))
+                    Box(modifier = Modifier.width(3.dp).background(hexColor(PRIORITY_COLORS.getValue(entry.priority))))
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                             Text(
-                                entry.packet.priority.value,
-                                color = hexColor(PRIORITY_COLORS.getValue(entry.packet.priority)),
+                                entry.priority.value,
+                                color = hexColor(PRIORITY_COLORS.getValue(entry.priority)),
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 1.sp,
                             )
                             Text(
-                                findLanguage(entry.packet.language).short,
-                                color = hexColor(findLanguage(entry.packet.language).accent),
+                                findLanguage(entry.language).short,
+                                color = hexColor(findLanguage(entry.language).accent),
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 0.6.sp,
@@ -110,7 +110,10 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            val original = entry.packet.originalBytes
+                            // Read off the log entry, not the packet:
+                            // `packet §1.3` moved these sender-side facts off
+                            // the wire and onto this side.
+                            val original = entry.originalBytes
                             val payload = entry.packet.payload.size
                             val ratio = compressionRatio(original, payload)
                             Text(
@@ -122,12 +125,16 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                             if (ratio != null) {
                                 Text(
                                     formatRatio(ratio),
-                                    color = modeColor(entry.packet.mode),
+                                    color = AppColor.Accent,
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Black,
                                 )
                             }
-                            ModeChip(entry.packet.mode)
+                            // The RAW / PACK7 / PHRASE chip stood here. Those
+                            // modes are retired (`packet §1.4`); the tier that
+                            // replaces them is inside the native payload and is
+                            // not readable at this layer (`packet §1.1`).
+                            // Phase 11 reinstates it as a tier chip.
                             // Stated rather than hidden: the frame carries a
                             // header, and on a 2-byte payload that is most of
                             // what goes out.
@@ -136,15 +143,11 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                                 color = AppColor.TextFaint,
                                 fontSize = 10.sp,
                             )
-                            Text(
-                                // A real assertion, computed when the packet
-                                // was built by decoding its own payload back -
-                                // not a decorative tick.
-                                if (entry.roundTripOk) "✓" else "✗ LOSSY",
-                                color = if (entry.roundTripOk) AppColor.Live else AppColor.Danger,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Black,
-                            )
+                            // The round-trip tick stood here. It decoded the
+                            // payload back through the Kotlin codec that wrote
+                            // it; that codec is no longer the producer, so the
+                            // check would assert nothing. Phase 11 can restate
+                            // it against the native decoder.
                         }
 
                         Text(
@@ -152,7 +155,7 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                             // Date.toLocaleTimeString() (device/locale
                             // 12h-vs-24h convention), not a fixed format.
                             DateFormat.getTimeInstance(DateFormat.MEDIUM, Locale.getDefault())
-                                .format(Date(entry.packet.timestamp)) +
+                                .format(Date(entry.packet.localTimestamp)) +
                                 " · ${entry.latencyMs} ms decode",
                             color = AppColor.TextFaint,
                             fontSize = 10.sp,

@@ -46,10 +46,11 @@ fun TelemetryStrip(latest: LogEntry?, pauseMs: Int, onPauseChange: (Int) -> Unit
         if (latest == null) {
             Text("—", color = AppColor.TextFaint, fontSize = 19.sp, fontWeight = FontWeight.Black)
         } else {
+            // Read off the log entry, not the packet: `packet §1.3` moved
+            // these sender-side facts off the wire and onto this side.
             CompressionReadout(
-                originalBytes = latest.packet.originalBytes,
+                originalBytes = latest.originalBytes,
                 payloadBytes = latest.packet.payload.size,
-                mode = latest.packet.mode,
             )
         }
 

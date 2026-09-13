@@ -1,8 +1,6 @@
 package com.itantra.app.transport
 
-import com.itantra.app.codec.CodecMode
 import com.itantra.app.packet.ITantraPacket
-import com.itantra.app.packet.PacketPriority
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -34,19 +32,11 @@ class ThrottledTransportTest {
         }
     }
 
-    private fun packet(
-        payloadBytes: Int,
-        originalBytes: Int = payloadBytes,
-        mode: CodecMode = CodecMode.PACK7,
-    ) = ITantraPacket(
+    private fun packet(payloadBytes: Int) = ITantraPacket(
         id = "id",
         senderId = "NODE-0001",
-        timestamp = 0L,
-        language = "hi-IN",
+        localTimestamp = 0L,
         payload = ByteArray(payloadBytes),
-        mode = mode,
-        originalBytes = originalBytes,
-        priority = PacketPriority.NORMAL,
     )
 
     // -----------------------------------------------------------------------
@@ -58,8 +48,8 @@ class ThrottledTransportTest {
         // 250 bps is 31.25 bytes per second, so 1000 bytes takes 32 seconds.
         assertEquals(32_000L, airtimeMs(1000, 250))
         assertEquals(8_000L, airtimeMs(250, 250))
-        assertEquals(1_568L, airtimeMs(49, 250))   // a real PACK7 Hindi frame
-        assertEquals(3_712L, airtimeMs(116, 250))  // the same message uncompressed
+        assertEquals(1_472L, airtimeMs(46, 250))   // a 38 B payload in the 8 B frame
+        assertEquals(3_616L, airtimeMs(113, 250))  // the same message uncompressed
         assertEquals(0L, airtimeMs(0, 250))
     }
 
@@ -83,26 +73,37 @@ class ThrottledTransportTest {
         val cost = FrameCost(
             originalBytes = 105,
             payloadBytes = 38,
-            mode = CodecMode.PACK7,
             headerBytes = PacketCodec.HEADER_BYTES,
             outbound = true,
         )
-        // Racing 49 B against the bare 105 B of text would flatter the codec;
+        // Racing 46 B against the bare 105 B of text would flatter the codec;
         // the honest baseline is what an uncompressed system would transmit,
         // header included.
-        assertEquals(116, cost.uncompressedFrameBytes)
-        assertEquals(49, cost.sentFrameBytes)
+        assertEquals(113, cost.uncompressedFrameBytes)
+        assertEquals(46, cost.sentFrameBytes)
     }
 
     @Test
-    fun `english is not flattered - the header can outweigh what PACK7 saves`() {
-        // Measured case: 37 B of English text packs to 35 B, but the frame is
-        // 46 B against an uncompressed frame of 48 B. Still a win, but a small
-        // one, and the UI must be able to show that honestly.
-        val cost = FrameCost(37, 35, CodecMode.PACK7, PacketCodec.HEADER_BYTES, true)
-        assertEquals(48, cost.uncompressedFrameBytes)
-        assertEquals(46, cost.sentFrameBytes)
+    fun `english is not flattered - the header can outweigh what is saved`() {
+        // The header is smaller after Phase 0 (8 B, not 11), so this margin
+        // widened. The point of the test is unchanged: the comparison must
+        // stay like-for-like, and the UI must be able to show a thin win
+        // honestly rather than hiding it.
+        val cost = FrameCost(37, 35, PacketCodec.HEADER_BYTES, true)
+        assertEquals(45, cost.uncompressedFrameBytes)
+        assertEquals(43, cost.sentFrameBytes)
         assertTrue(cost.sentFrameBytes < cost.uncompressedFrameBytes)
+    }
+
+    @Test
+    fun `an inbound frame reports no source size rather than a wrong one`() {
+        // packet §1.3 took originalBytes off the wire, so a received frame
+        // genuinely does not carry it. Reporting 0 and flagging hasOriginal
+        // false is honest; inventing a figure would put a fabricated number
+        // on screen next to real measurements.
+        val inbound = FrameCost(0, 12, PacketCodec.HEADER_BYTES, outbound = false)
+        assertTrue(!inbound.hasOriginal)
+        assertTrue(FrameCost(105, 38, PacketCodec.HEADER_BYTES, outbound = true).hasOriginal)
     }
 
     // -----------------------------------------------------------------------
@@ -112,7 +113,7 @@ class ThrottledTransportTest {
     @Test
     fun `an enabled throttle actually delays the send`() {
         val inner = RecordingTransport()
-        // 1000 bits/s => a 61-byte frame (50 payload + 11 header) is ~488 ms.
+        // 1000 bits/s => a 58-byte frame (50 payload + 8 header) is ~464 ms.
         val throttle = ThrottledTransport(inner, initialBitsPerSecond = 1000)
 
         val elapsed = runBlocking {
@@ -122,7 +123,7 @@ class ThrottledTransportTest {
         }
 
         assertEquals(1, inner.sent.size)
-        assertTrue("expected roughly 488 ms, took $elapsed ms", elapsed >= 400)
+        assertTrue("expected roughly 464 ms, took $elapsed ms", elapsed >= 400)
     }
 
     @Test
@@ -156,18 +157,37 @@ class ThrottledTransportTest {
         val throttle = ThrottledTransport(inner, initialBitsPerSecond = 100_000)
         throttle.onPacketReceived { }
 
-        runBlocking { throttle.sendPacket(packet(payloadBytes = 38, originalBytes = 105)) }
+        // The sender states the source size; the transport can no longer
+        // read it off the packet (packet §1.3).
+        throttle.noteOutbound(105)
+        runBlocking { throttle.sendPacket(packet(payloadBytes = 38)) }
         val outbound = throttle.lastFrame.value
         assertNotNull(outbound)
         assertEquals(105, outbound!!.originalBytes)
         assertEquals(38, outbound.payloadBytes)
         assertTrue(outbound.outbound)
 
-        inner.receiveListener!!(packet(payloadBytes = 2, originalBytes = 47, mode = CodecMode.PHRASE))
+        inner.receiveListener!!(packet(payloadBytes = 2))
         val inbound = throttle.lastFrame.value!!
-        assertEquals(CodecMode.PHRASE, inbound.mode)
         assertEquals(2, inbound.payloadBytes)
+        assertEquals("inbound source size is not knowable here", 0, inbound.originalBytes)
         assertTrue("a received frame is not outbound", !inbound.outbound)
+    }
+
+    @Test
+    fun `a noted source size applies to one send only`() {
+        val inner = RecordingTransport()
+        val throttle = ThrottledTransport(inner, initialBitsPerSecond = 100_000)
+
+        throttle.noteOutbound(105)
+        runBlocking { throttle.sendPacket(packet(payloadBytes = 38)) }
+        assertEquals(105, throttle.lastFrame.value!!.originalBytes)
+
+        // A second send that declares nothing must not inherit the first
+        // message's figure — that would attribute one utterance's size to a
+        // different utterance.
+        runBlocking { throttle.sendPacket(packet(payloadBytes = 38)) }
+        assertEquals(0, throttle.lastFrame.value!!.originalBytes)
     }
 
     @Test

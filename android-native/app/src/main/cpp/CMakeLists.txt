@@ -5,11 +5,21 @@ project("itantra-native" CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# The AGP entry point. Its role is unchanged: AGP invokes this file, this file
+# produces libitantra-native.so. What changed in Phase 0 is only that the
+# source list now lives in sources.cmake, shared with the host build under
+# native/, so the two cannot drift apart.
+set(ITANTRA_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+include("${CMAKE_CURRENT_SOURCE_DIR}/sources.cmake")
+
 add_library(
         itantra-native
         SHARED
-        itantra-native.cpp
+        ${ITANTRA_JNI_SOURCES}
+        ${ITANTRA_CORE_SOURCES}
 )
+
+target_include_directories(itantra-native PRIVATE "${ITANTRA_CPP_DIR}")
 
 find_library(
         log-lib

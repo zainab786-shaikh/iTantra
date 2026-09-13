@@ -13,7 +13,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.itantra.app.codec.CodecMode
 import com.itantra.app.ui.theme.AppColor
 
 /**
@@ -26,12 +25,17 @@ import com.itantra.app.ui.theme.AppColor
  * constant copied out of a design document.
  */
 
-/** How a mode is coloured, so a PHRASE hit is visible across a room. */
-fun modeColor(mode: CodecMode): Color = when (mode) {
-    CodecMode.RAW -> AppColor.TextMuted
-    CodecMode.PACK7 -> AppColor.Accent
-    CodecMode.PHRASE -> AppColor.Primary
-}
+/**
+ * The colour the payload figure is drawn in.
+ *
+ * This used to be `modeColor(CodecMode)` — RAW / PACK7 / PHRASE each had their
+ * own hue so a PHRASE hit was visible across a room. Those modes are retired
+ * (`packet §1.4`), and the concept that replaces them is the **tier**, which
+ * lives inside the native payload and is not readable at this layer until the
+ * native receive pipeline lands in Phase 11. One accent until then, rather
+ * than a chip asserting something this build cannot know.
+ */
+private val payloadColor: Color get() = AppColor.Accent
 
 /**
  * Ratio of source size to payload size, or null when there is nothing to
@@ -48,33 +52,26 @@ fun compressionRatio(originalBytes: Int, payloadBytes: Int): Double? =
 fun formatRatio(ratio: Double): String =
     if (ratio >= 10.0) "%.1f×".format(ratio) else "%.2f×".format(ratio)
 
-/** A small mode chip: RAW / PACK7 / PHRASE. */
-@Composable
-fun ModeChip(mode: CodecMode, fontSize: Int = 9) {
-    val color = modeColor(mode)
-    Text(
-        mode.name,
-        color = color,
-        fontSize = fontSize.sp,
-        fontWeight = FontWeight.Black,
-        letterSpacing = 0.8.sp,
-        modifier = Modifier
-            .background(color.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 5.dp, vertical = 2.dp),
-    )
-}
-
 /**
- * The transmitter's headline readout: `105 B → 38 B   2.76×   PACK7`.
+ * The transmitter's headline readout: `105 B → 38 B   2.76×`.
  *
- * [originalBytes] is the UTF-8 size of what was said; [payloadBytes] is what
- * actually went on the wire.
+ * [originalBytes] is the UTF-8 size of what was said (M-01); [payloadBytes] is
+ * what actually went on the wire. Both are sender-side figures now —
+ * `packet §1.3` took `originalBytes` off the link, so only the sender can
+ * state it, and it does (see `packet.BuiltPacket`).
+ *
+ * Note for Phase 13: this is *not* M-05. `contract §6.1` requires the quoted
+ * compression ratio to be M-01 ÷ M-04 — the **complete** ITantraPacket
+ * including the outer frame and the AEAD tag — because "quoting M-01 ÷ M-02
+ * overstates the achieved compression by excluding the tag and outer frame,
+ * which together can exceed the payload on short messages". This readout is
+ * the payload-level figure and must be labelled as such wherever it is
+ * reported as a measurement.
  */
 @Composable
 fun CompressionReadout(
     originalBytes: Int,
     payloadBytes: Int,
-    mode: CodecMode,
 ) {
     val ratio = compressionRatio(originalBytes, payloadBytes)
     Row(
@@ -97,11 +94,10 @@ fun CompressionReadout(
         if (ratio != null) {
             Text(
                 formatRatio(ratio),
-                color = modeColor(mode),
+                color = payloadColor,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Black,
             )
         }
-        ModeChip(mode, fontSize = 10)
     }
 }

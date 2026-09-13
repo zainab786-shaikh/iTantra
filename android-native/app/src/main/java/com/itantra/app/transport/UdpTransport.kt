@@ -175,7 +175,7 @@ class UdpTransport(
             if (active == null) return@withContext false
             try {
                 active.send(DatagramPacket(frame, frame.size, target))
-                Log.d(TAG, "-> ${packet.priority.value} ${packet.language} ${frame.size} B to $target")
+                Log.d(TAG, "-> ${frame.size} B to $target (${packet.id})")
                 true
             } catch (e: Exception) {
                 // Reported honestly rather than swallowed: the transmitter's
@@ -362,10 +362,14 @@ class UdpTransport(
                 // Liveness only. Deliberately not surfaced to the app: a
                 // keepalive is not a message and must never reach the receive
                 // log or the speech queue.
-                Log.d(TAG, "<- HELLO ${DeviceId.nodeLabel(frame.nodeId)} from $from")
+                Log.d(
+                    TAG,
+                    "<- HELLO ${DeviceId.nodeLabel(frame.nodeId)} " +
+                        "lang=${frame.languageCode ?: "?"} from $from",
+                )
             }
             is PacketCodec.Frame.Data -> {
-                Log.d(TAG, "<- ${frame.packet.priority.value} ${frame.packet.language} $length B from $from")
+                Log.d(TAG, "<- $length B from $from (${frame.packet.id})")
                 for (listener in receiveListeners.toList()) listener(frame.packet)
             }
         }
