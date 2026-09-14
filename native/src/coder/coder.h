@@ -78,6 +78,14 @@
 
 namespace itantra {
 
+// FROZEN in Phase 3 by the golden vectors (native/test/golden/vectors.bin).
+// Any change to the WIRE CONTRACT block above, to kCoderPrecisionBits or to
+// kCoderFlushBits is a new coder version and a format version bump.
+//
+// kCoderVersion is the "coder version" packet §8.3 checks at HELLO. How HELLO
+// carries it is not decided here (HELLO is built with pairing, Phase 12).
+constexpr u8 kCoderVersion = 1u;
+
 constexpr u32 kCoderPrecisionBits = 32u;
 
 // ---------------------------------------------------------------------------

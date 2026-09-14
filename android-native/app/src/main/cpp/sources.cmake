@@ -33,6 +33,10 @@ set(ITANTRA_CORE_SOURCES
         common/hash.cpp
         coder/coder.cpp
         coder/static_model.cpp
+        packet/metadata.cpp
+        packet/seq.cpp
+        packet/assemble.cpp
+        packet/parse.cpp
 )
 
 # ---------------------------------------------------------------------------

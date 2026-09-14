@@ -52,7 +52,9 @@ file(GLOB_RECURSE ITANTRA_C04_FILES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/test/unit/*.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/test/unit/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test/conformance/*.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/test/conformance/*.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/conformance/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/*.cpp")
 list(APPEND ITANTRA_C04_FILES "${CMAKE_CURRENT_SOURCE_DIR}/test/itest.h")
 
 # A core source outside native/src would silently escape the check.
@@ -124,3 +126,35 @@ itantra_expect_assert(encode-empty-model     "zero-probability or malformed symb
 itantra_expect_assert(encode-after-finish    "encode after finish")
 itantra_expect_assert(decode-empty-model     "model total out of range")
 itantra_expect_assert(decode-broken-model    "model find broke its contract")
+
+# ---------------------------------------------------------------------------
+# Phase 3 — payload assembly, parsing, golden vectors
+# ---------------------------------------------------------------------------
+itantra_host_test(unit.metadata metadata_test test/unit/metadata_test.cpp)
+itantra_host_test(unit.assemble assemble_test test/unit/assemble_test.cpp)
+
+# packet §5: "hash_present set but hash invalid — programming error; assert in
+# debug". Same pattern as the coder assert cases above.
+add_test(NAME unit.assemble.assert.hash-too-wide
+         COMMAND assemble_test --expect-assert assemble-hash-too-wide)
+set_tests_properties(unit.assemble.assert.hash-too-wide PROPERTIES
+        PASS_REGULAR_EXPRESSION "hash_present set but context_hash invalid"
+        FAIL_REGULAR_EXPRESSION "NOT-ABORTED|UNKNOWN-CASE"
+        SKIP_REGULAR_EXPRESSION "ASSERTIONS-DISABLED"
+        TIMEOUT 60)
+
+# The generator is built so it keeps compiling, but NEVER run by the build or
+# by CTest: test/golden/vectors.bin is frozen (contract §2.2, §7.2). It refuses
+# to overwrite an existing file without --format-version-bump.
+add_executable(itantra-golden-generate test/golden/generate.cpp)
+target_link_libraries(itantra-golden-generate PRIVATE itantra-core)
+target_include_directories(itantra-golden-generate PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+target_compile_options(itantra-golden-generate PRIVATE ${ITANTRA_HOST_WARNINGS})
+
+# C-01/C-02 host preconditions, C-03. C-01/C-02 proper are [D] (Phase 11).
+add_executable(c01_c04_test test/conformance/c01_c04.cpp)
+target_link_libraries(c01_c04_test PRIVATE itantra-core)
+target_include_directories(c01_c04_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+target_compile_options(c01_c04_test PRIVATE ${ITANTRA_HOST_WARNINGS})
+add_test(NAME conformance.c01_c04
+         COMMAND c01_c04_test --vectors "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/vectors.bin")

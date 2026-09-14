@@ -58,8 +58,9 @@ std::vector<u32> live_symbols(const std::vector<u32>& frequencies) {
     return live;
 }
 
-// No symbol costs more than 25 committed bits (the narrowed interval is at
-// least 2^30 / 2^24 - 1 wide, and doubles once per bit); 32 is a safe bound.
+// No symbol costs more than 26 committed bits (the narrowed interval is at
+// least 64 wide, and doubles once per bit until it passes 2^31); 32 is a safe
+// bound. Derivation: packet/assemble.h kCoderMaxBitsPerSymbol.
 u32 capacity_bytes(u32 prefix_bits, u32 symbols) {
     return (prefix_bits + 32u * symbols + kCoderFlushBits + 7u) / 8u;
 }

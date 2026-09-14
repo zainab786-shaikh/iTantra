@@ -11,7 +11,7 @@
 ### Implementation resolutions — v1.2 (no version bump, no spec-body change)
 
 - §5.2 — **context hash algorithm resolved** (implementation plan Phase 1). §5.2 fixed the inputs but not the function. Pinned as **CRC-16/CCITT-FALSE**: polynomial `0x1021`, init `0xFFFF`, no input/output reflection, xorout `0x0000` (check value over ASCII `"123456789"` = `0x29B1`). Input is 24 bytes: for each slot in `SlotId` order, `current >> 8`, `current & 0xFF`, `ver`. Output is 16 bits. Implemented in `native/src/common/hash.h`.
-- **Explicitly deferred to Phase 3:** mapping the 16-bit hash onto the 12-bit wire field (`packet-security-transport-spec.md` §3.3). Not resolved by this entry.
+- **Resolved in Phase 3:** the 12-bit wire field (`packet-security-transport-spec.md` §3.3) carries the low 12 bits of this 16-bit hash, `hash & 0x0FFF`. Both phones map their own pre-message hash and compare wire values. Recorded in that spec's implementation resolutions; implemented in `native/src/packet/metadata.h`.
 - **Explicitly deferred to Phase 5:** the representation of the `LAST_REF` null index (§2.4). Not resolved by this entry.
 
 ### Changes from v1.1

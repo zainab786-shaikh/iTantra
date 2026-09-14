@@ -8,6 +8,22 @@
 **Companions:** `language-layer-spec.md` v1.3 · `context-manager-spec.md` v1.2 · `tier-1-2-spec.md` v1.5 · `receiver-pipeline-spec.md` v1.2 · `validation-benchmark-contract.md` v1.1
 **Implementation:** C++17, integer arithmetic only
 
+### Implementation resolutions — v1.2 (no version bump, no spec-body change)
+
+Recorded when the format froze (implementation plan Phase 3). These pin values the spec body fixed only by width, or left open. Together with `native/test/golden/vectors.bin` they are **packet format version 1**; changing any of them is a deliberate format version bump (`validation-benchmark-contract.md` §2.2, §7.2).
+
+- §3.1 `tier` wire values: `01` = Tier 1, `10` = Tier 2. `00` and `11` are rejected by the parser.
+- §3.1 `symbol_count` escape: the 11-bit extension **immediately follows** the 5-bit field, before `seq`. Field value 31 announces it; the extension carries `count − 31`. Counts 0–30 use only the 5-bit form, so every count has exactly one encoding. Maximum 2078; above that, `ASM_TOO_LONG`.
+- §3.2 `negation` copies: `00` = false, `11` = true. `01` / `10` is a disagreement: the packet is rejected (receiver §3④).
+- §3.2 / §3.3 field order: common prefix, then the tier-specific field, then `context_hash`. Tier 2 with hash is 33 bits.
+- §3.3 `context_hash`: the 12-bit field carries the **low 12 bits** of the 16-bit context hash (`context-manager-spec.md` §5.2): `wire = hash16 & 0x0FFF`. Chosen by measurement over the §5.2 input: it detects every single-bit flip and every change confined to one slot's `ver`; no 16 → 12 bit mapping can detect every change confined to one slot's `current`.
+- §3.6 local counter width: `uint64_t`. Reconstruction per RFC 9000 Appendix A.3 with an 8-bit window: a counter within `[expected − 127, expected + 128]` is recovered exactly. The counter's starting value is not pinned here (Phase 4, with the nonce).
+- §4 / §4.1 flush: binary-scaled arithmetic coder (Witten–Neal–Cleary), 32-bit precision, `native/src/coder/coder.h`. **Exactly 2 flush bits.** Pending underflow ("follow") bits are payload, not flush: bit length after the flush = metadata bits + committed payload bits + 2. Decoding does not depend on any bit after the flush.
+- §4 CRC-8: not implemented. Encryption is phase 1 (§6.10) and the AEAD tag replaces the CRC (§4.1, §6.2). The plaintext payload is metadata + payload + flush + zero padding.
+- §8.3 versions: coder version `1` (`kCoderVersion`), packet format version `1` (`kPacketFormatVersion`). How HELLO carries them is not pinned here.
+- §6.10.1 golden vectors: `native/test/golden/vectors.bin`, file format v1 — 59 vectors, 11 probability tables, 120,651 bytes, SHA-256 `E02141ABDA5C468D1E649666CAB3575611BE15D5D2079C2FCF9DE90D4F11C7B9`. Literals are represented by their UTF-8 bytes coded under a 256-symbol table, because the Tier 1 and Tier 2 tables do not exist until implementation phases 7–8; vectors for those tables are added then, leaving every existing vector byte-identical.
+- Still open: which language each 4-bit `language` value denotes (carried opaquely; language layer).
+
 ### Changes from v1.1
 
 - §7.4 — **FEC clarified.** It remains in the final architecture and the ordering rule is binding wherever a transport supplies it, but `UdpTransport` provides none, so **no FEC is implemented in the current phase.** v1.1 read as requiring FEC on the current transport.
