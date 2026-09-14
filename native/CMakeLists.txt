@@ -100,3 +100,27 @@ endfunction()
 
 itantra_host_test(unit.bitio bitio_test test/unit/bitio_test.cpp)
 itantra_host_test(unit.hash  hash_test  test/unit/hash_test.cpp)
+itantra_host_test(unit.coder coder_test test/unit/coder_test.cpp)
+itantra_host_test(unit.coder.fuzz coder_fuzz_test test/unit/coder_fuzz_test.cpp)
+
+# Phase 2: "a symbol with p == 0 is a programming error → assert, not garbage".
+# An assert ends the process, so each contract violation runs in a process of
+# its own and passes only if THAT assert's message appears. NOT-ABORTED means
+# the violation returned instead of asserting. In an NDEBUG configuration the
+# binary reports the case skipped, and coder_test's release_* cases check that
+# the violation is rejected with nothing written.
+function(itantra_expect_assert case message)
+    add_test(NAME unit.coder.assert.${case} COMMAND coder_test --expect-assert ${case})
+    set_tests_properties(unit.coder.assert.${case} PROPERTIES
+            PASS_REGULAR_EXPRESSION "${message}"
+            FAIL_REGULAR_EXPRESSION "NOT-ABORTED|UNKNOWN-CASE"
+            SKIP_REGULAR_EXPRESSION "ASSERTIONS-DISABLED"
+            TIMEOUT 60)
+endfunction()
+
+itantra_expect_assert(encode-zero-frequency  "zero-probability or malformed symbol range")
+itantra_expect_assert(encode-out-of-alphabet "zero-probability or malformed symbol range")
+itantra_expect_assert(encode-empty-model     "zero-probability or malformed symbol range")
+itantra_expect_assert(encode-after-finish    "encode after finish")
+itantra_expect_assert(decode-empty-model     "model total out of range")
+itantra_expect_assert(decode-broken-model    "model find broke its contract")

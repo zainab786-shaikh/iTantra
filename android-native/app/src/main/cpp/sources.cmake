@@ -31,6 +31,8 @@ get_filename_component(ITANTRA_CORE_DIR
 set(ITANTRA_CORE_SOURCES
         common/bitio.cpp
         common/hash.cpp
+        coder/coder.cpp
+        coder/static_model.cpp
 )
 
 # ---------------------------------------------------------------------------
