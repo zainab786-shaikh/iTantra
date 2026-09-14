@@ -951,6 +951,7 @@ ITEST(pack_compiler_requires_every_language_template_to_render_the_same_required
     const auto en_with = [](const std::string& intent, const std::string& text, LanguagePack& out) {
         std::vector<TemplateSource> sources;
         for (const auto& row : langfx::read_tsv(fx().base.lang.src_dir + "/lang/en/templates.tsv")) {
+            if (row.at(0) == intent && text.empty()) continue;   // "" drops the intent's template
             sources.push_back(TemplateSource{fx().base.lang.intents.at(row.at(0)), row.at(0) == intent ? text : row.at(1)});
         }
         PackFiles files;
@@ -969,6 +970,20 @@ ITEST(pack_compiler_requires_every_language_template_to_render_the_same_required
     ITEST_TRUE(en_with("REQUEST_MEDICAL_AT", "Send {QUANTITY:digits} {OBJECT:plain} {LOCATION:destination}", optional_slot));
     ITEST_TRUE(!rulec::check_templates(common(), {{"en", &optional_slot}}, error) &&
                contains(error, "uses slot QUANTITY, which the intent does not require"));
+
+    // Coverage is never skipped (Phase 10): a missing template, or a form some
+    // concept of the slot lacks, fails the build instead of a render at runtime.
+    LanguagePack no_template;
+    ITEST_TRUE(en_with("REPORT_FIRE_AT", "", no_template));
+    ITEST_TRUE(!rulec::check_templates(common(), {{"hi", &pack("hi")}, {"en", &no_template}}, error) &&
+               contains(error, "has no template in en"));
+    ITEST_TRUE(!rulec::check_templates(common(), {{"en", &no_template}, {"hi", &pack("hi")}}, error) &&
+               contains(error, "has no template in en"));
+    LanguagePack no_form;
+    // "locative" is a form of this pack (the loader rejects unknown form names),
+    // but no ACTOR concept has one.
+    ITEST_TRUE(en_with("REQUEST_MOVE", "{ACTOR:locative} move", no_form));
+    ITEST_TRUE(!rulec::check_templates(common(), {{"en", &no_form}}, error) && contains(error, "has no form \"locative\" in en"));
 }
 
 // ---------------------------------------------------------------------------

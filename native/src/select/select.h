@@ -45,6 +45,13 @@
 //              "always succeeds" is the coder's totality — every token has a
 //              finite code — within packet §5's size bound. A clause of at most
 //              2078 bytes always has a Tier 2 payload.
+//   Context-free (Phase 10 fix). A fully explicit request — policy.allow_inheritance
+//              = false, the context spec §16.1 periodic refresh and the §18.3
+//              context-free fallback — is sent with NO inheritance AND NO Tier 2
+//              boost, whatever boost_tier2 says (tier §6.5: only the unboosted
+//              form is self-contained). A boosted Tier 2 refresh would need the
+//              very context agreement it exists to restore. Tier 1 carries no
+//              hash then either. The reset flag (context §13.4) stays deferred.
 //   Context    Tier 1 → commit the frame's payload (tier §11.2). Tier 2 → both
 //              phones update from the text when they share a language, and both
 //              skip it otherwise (tier §11.3). The selector commits nothing.
@@ -97,8 +104,14 @@ struct SelectRequest {
     SenderPolicy            policy;
     LangId                  sender_language   = 0u;     // must name tier1.pack's language
     LangId                  listener_language = 0u;     // from HELLO
-    bool                    boost_tier2       = true;   // false: the unboosted recovery form (tier §6.5)
+    bool                    boost_tier2       = true;   // false: the unboosted recovery form (tier §6.5);
+                                                        // ignored (unboosted) when !policy.allow_inheritance
 };
+
+// Whether Tier 2 is boosted for `r`: never for a context-free request.
+inline bool tier2_boosted(const SelectRequest& r) noexcept {
+    return r.boost_tier2 && r.policy.allow_inheritance;
+}
 
 enum class Tier1Verdict : u8 {
     Safe,          // Ok, and the payload's metadata verified

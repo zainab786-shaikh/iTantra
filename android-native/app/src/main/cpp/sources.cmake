@@ -57,6 +57,7 @@ set(ITANTRA_CORE_SOURCES
         tier2/tables.cpp
         tier2/encode.cpp
         tier2/decode.cpp
+        tier2/commit.cpp
         tier1/frame.cpp
         tier1/decode.cpp
         tier1/rules.cpp
@@ -66,6 +67,7 @@ set(ITANTRA_CORE_SOURCES
         tier1/readback.cpp
         tier1/encode.cpp
         select/select.cpp
+        receiver/pipeline.cpp
 )
 
 # ---------------------------------------------------------------------------

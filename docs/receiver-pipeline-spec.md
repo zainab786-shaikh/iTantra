@@ -9,6 +9,60 @@
 
 This document ties the four layers together on the receive side. Each layer's own spec owns its internals; this one owns the **order**, the **gates**, and the **failure branches**.
 
+### Implementation resolutions — v1.2 (no version bump, no spec-body change)
+
+- **Receiver pipeline, pinned in Phase 10** (`native/src/receiver/`: `pipeline.h`, `pipeline.cpp`, `output.h`). Tested by `unit.receiver` and `conformance.c31`.
+  - **Scope:** all items here are receiver-local.
+  - **Unchanged:** the wire format, the coder, the crypto, the tables, and both golden artifacts.
+
+  **Decided**
+  - **§3② counter recovery.** The receiver trial-authenticates candidate counters; the packet spec's implementation resolutions give the full rule. No wire change.
+    - **Security fix after review:** no candidate is ever accepted on the AEAD tag alone. Every accepted candidate must contain seq, and its decrypted seq must equal the candidate's low 8 bits, whatever the rest of the metadata looks like (truncated, tier 00 or 11). Before the fix, a plaintext with unparseable metadata was accepted on its tag.
+  - **§3⑤ seq gap.**
+    - `last_seq` is the low 8 bits of the largest counter accepted, so the first message expects seq 1.
+    - The gap is evaluated at ⑤. Its sync request and "context suspect" flag take effect only once ⑥ passes, so a replay requests nothing (§3⑥, §9).
+    - A reordered older packet raises a spurious sync request, as §3⑤ accepts.
+    - The suspect flag is local. A gap or a mismatch sets it; a matching hash clears it.
+  - **§3⑥ replay.** The window is checked on the recovered wide counter (`crypto/replay.h`), and a counter is recorded at ⑥. A packet rejected at ② (authentication) or ④ (negation) is never recorded.
+  - **§6.1, §7.1 unresolved slots.**
+    - While any slot is unresolved, `text` is empty. This is Phase 8's `tier1_render` refusal, unchanged.
+    - The output carries `unresolved[]` and `status = context_mismatch`.
+    - No value, guessed or stale, exists anywhere in the output for such a slot (C-31).
+    - §6.1's illustration ("REQUEST MEDICAL at [unresolved]") is not produced by native code (see Open).
+  - **§7 emission.**
+
+    | Case | Output | Requests |
+    |---|---|---|
+    | Authentication failure | none (nothing is readable) | none (the next good packet reveals the gap, §9) |
+    | Negation disagreement, or authenticated but malformed | `integrity_fail`, with the parsed priority and mode | repeat |
+    | Replay | none | none |
+    | Tier 1 with unresolved slots | `context_mismatch`, no text, `unresolved[]` | sync |
+    | Boosted Tier 2 with a hash mismatch | `context_mismatch`, no text | sync and an unboosted resend |
+    | Receiver's pack cannot render a decoded frame | **`render_fail`**, context still committed (decode and hash succeeded, §8.1) | none (a repeat would render no better) |
+
+    Outputs are emitted in arrival order; ordering by priority is the output layer's job (§7.4). `TIER_3` is a stub and is never produced.
+  - **§7 status — `render_fail` added (approved after review).** The status values are `ok | context_mismatch | integrity_fail | render_fail`.
+    - `render_fail` means the packet is authentic and decoded and its context was committed, but the receiver's language pack cannot render it.
+    - `integrity_fail` stays for authentication and integrity problems only: negation disagreement and malformed authenticated payloads.
+  - **Render failure is reachable (correction).** An earlier entry called it unreachable for packs that pass `rulec::check_templates`. That was wrong: the check skipped a language with no template and never checked forms.
+    - `itantra-packc` now fails the build when any language lacks a template for any intent, when a concept that can fill a named-form placeholder lacks that form, or when a pack using "native" digits has no digit set.
+    - A render failure is still possible with valid packs: a **number** in a slot whose template asks a named form, or a **concept** in a digits slot. For example, a sender whose own template renders the value, and a receiver whose template for that slot asks a named form. `unit.receiver` tests this case.
+  - **§8.1 commit.**
+    - **Tier 1:** committed iff the decode succeeds and the hash matches or is absent, using `frame_commit_payload`.
+    - **Tier 2:** committed iff the decode succeeds and the payload's `language` equals the receiver's LangId, using `tier2_text_commit` (tier spec §11 block). Otherwise both phones skip (§8.3).
+    - **Sender:** the Phase 9 sender commits with the same functions on the same bytes.
+
+  **Open**
+  - How repeat, sync and unboosted-resend requests are carried on the wire, and the §18.3 repair exchange (Phase 12).
+  - Whether a partial Tier 1 rendering with a per-language "unresolved" marker should be shown. This is a language / output-layer decision; the marker is not in any pack.
+  - HELLO version and language checks (C-34), and the pair runs C-14, C-15, C-30 and C-35 (Phase 12).
+  - **Receive-side DoS — not rate-limited.**
+    - A packet that authenticates under no candidate costs 255–256 AEAD opens, and each open decrypts and re-seals the whole payload before comparing tags.
+    - Measured in the review with unoptimised device-test builds (upper bounds): about 3.5 ms per junk packet on the arm64 phone and about 1.7 ms on the x86_64 emulator for small payloads; 133 ms and 57 ms at the 6,760-byte maximum.
+    - Neither the native pipeline nor `ThrottledTransport` / `UdpTransport` limits inbound packets.
+    - The 256-candidate width is required by the frozen reconstruction rule and is not reduced. Rate limiting or a cheaper tag check is future work.
+  - The meaning of `REF` is still provisional: it resolves like `INHERIT`.
+
 ### Changes from v1.1
 
 - §3① — **FEC clarified.** Stage ① is a **no-op in the current phase**, because `UdpTransport` provides no FEC. The stage is retained in the flow for the final architecture.

@@ -287,6 +287,44 @@ ITEST(context_update_follows_tier_and_language_pair_without_a_cross_language_pre
     std::printf("  %u Tier 1 / %u Tier 2 selections identical in every listener language\n", tier1, tier2);
 }
 
+ITEST(context_free_request_never_boosts_tier2_and_carries_no_hash) {
+    std::vector<selfx::Sample> samples = selfx::all_samples(fx());
+    u32 tier1 = 0u, tier2 = 0u, boosted_otherwise = 0u;
+    for (const selfx::Sample& sample : samples) {
+        SelectRequest r = selfx::request_for(sample, true, sample.lang);   // boost_tier2 = true
+        const TierSelection normal = select_tier(fx().tables(sample.lang), r);
+        r.policy.allow_inheritance = false;
+        ITEST_TRUE(!tier2_boosted(r));
+        const TierSelection s = select_tier(fx().tables(sample.lang), r);
+        ITEST_TRUE(s.outcome == SelectOutcome::Tier1 || s.outcome == SelectOutcome::Tier2);
+        Metadata m;
+        u32 offset = 0u;
+        ITEST_TRUE(parse_metadata(s.payload.data(), static_cast<u32>(s.payload.size()), m, offset) == ParseStatus::Ok);
+        ITEST_TRUE(!m.hash_present);
+        (s.outcome == SelectOutcome::Tier1 ? tier1 : tier2) += 1u;
+        if (normal.outcome == SelectOutcome::Tier2 && normal.payload.size() > 2u) {
+            Metadata n;
+            if (parse_metadata(normal.payload.data(), static_cast<u32>(normal.payload.size()), n, offset) == ParseStatus::Ok &&
+                n.hash_present) {
+                ++boosted_otherwise;
+            }
+        }
+        // A boosted Tier 2 encoding is not a candidate for a context-free request.
+        Tier2Message boosted;
+        boosted.seq           = r.seq;
+        boosted.priority      = s.priority;
+        boosted.language      = r.sender_language;
+        boosted.boost_context = r.context;
+        NativePayload p;
+        ITEST_TRUE(tier2_encode(fx().base.tables, r.input + r.tier2_text.begin, r.tier2_text.end - r.tier2_text.begin, boosted,
+                                p) == Tier2Status::Ok);
+        ITEST_TRUE(!choose_tier(fx().tables(sample.lang), r, s.tier1, Tier2Status::Ok, p).tier2_verified);
+    }
+    std::printf("  %zu context-free selections (%u Tier 1, %u Tier 2): no hash on any; %u of these clauses send boosted Tier 2 otherwise\n",
+                samples.size(), tier1, tier2, boosted_otherwise);
+    ITEST_TRUE(tier2 >= 10u && boosted_otherwise >= 10u);
+}
+
 ITEST(tier1_unavailable_or_invalid_falls_back_and_bad_requests_are_refused) {
     const selfx::Sample sample = selfx::single(fx(), "e01", "en", "Fire at the north gate");
     const SelectRequest r      = selfx::request_for(sample, true, "en");

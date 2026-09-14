@@ -53,7 +53,17 @@ Recorded when encryption was implemented (implementation plan Phase 4). These pi
 - Sender binding: the wire `seq` must equal the nonce counter's low 8 bits; assembly refuses otherwise, and an authenticated packet whose `seq` differs from the counter used to open it is rejected.
 - §6.8 replay window: 128 counters behind the largest accepted, covering §3.6's reconstruction range; a counter is recorded only after authentication. Local state, not a wire contract.
 - §6.10.2 `ITANTRA_DISABLE_AEAD`: debug builds only. Sealing and opening pass the plaintext payload through unchanged with no tag, so output equals the golden vectors. Refused by CMake for release build types and a compile error wherever it meets `NDEBUG`.
-- **Open — spec gap:** §6.2 encrypts `seq`, while §3.6, §6.5 and receiver §3② need the counter reconstructed from `seq` to form the nonce before decryption. Not resolved; the decrypt interface takes the counter explicitly, pending the receiver pipeline.
+- **Resolved in Phase 10 (was a spec gap):** §6.2 encrypts `seq`, while §3.6, §6.5 and receiver §3② need the counter reconstructed from `seq` to form the nonce before decryption. **No wire change.** The receiver trial-authenticates candidate counters (`native/src/receiver/pipeline.h`):
+  - **Candidates.** `seq_reconstruct(expected, w)` for every `w` in 0 … 255, where `expected` is the largest accepted counter + 1. These are exactly the counters §3.6's frozen rule can recover, `[expected − 127, expected + 128]`. Counter 0 is skipped.
+  - **Order.** Nearest `expected` first, ahead before behind on a tie.
+  - **Acceptance.** The first candidate whose 4-byte tag verifies (§6.4) **and** whose decrypted `seq` equals its low 8 bits is the counter. `open_payload` keeps taking the counter explicitly.
+  - **The seq check is mandatory for every accepted candidate** (security fix after review). No candidate is accepted on the tag alone, whatever the rest of the metadata looks like.
+    - `seq` is located with the frozen field decoders: bits 7 … 14, or bits 18 … 25 when `symbol_count` uses its escape. The tier's value does not move it.
+    - A plaintext that ends before `seq` (shorter than 2 bytes, or 4 with the escape) is never accepted.
+  - **Security.** A wrong candidate passes only by matching 32 tag bits and 8 seq bits by chance (2^−40). Over all 256 candidates a forgery therefore succeeds with probability 2^−32, the same as one tag checked at a known counter.
+  - **Cost.** At most 256 AEAD opens for a packet that fails. A packet arriving in order needs one.
+  - **Outside the window.** A counter beyond the window aliases and fails authentication (§3.6).
+  - **Tests:** `unit.receiver`, covering reordering, the window edge, the 8-bit wrap, the seq ↔ counter binding, and candidates with empty, truncated, tier 00 / 11 and escape-form plaintexts.
 - **Open:** security review against a known-good reference (§6.9, decision register #26) is still required before ship.
 
 ### Changes from v1.1

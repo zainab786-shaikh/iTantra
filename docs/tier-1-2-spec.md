@@ -129,6 +129,11 @@
   - **Tier 2 form.** The caller chooses between two forms (`SelectRequest::boost_tier2`); the selector does not encode both:
     - boosted: `hash_present = 1`, from the pre-message context
     - unboosted: the §6.5 recovery path
+    - **Context-free requests are always unboosted (Phase 10 fix).** A request with `policy.allow_inheritance = false` is fully explicit: the context spec §16.1 periodic refresh and the §18.3 context-free fallback. It is sent unboosted whatever `boost_tier2` says (`tier2_boosted()`), so it carries no hash on either tier.
+      - Without this, a Tier 2 refresh would be boosted, and a receiver whose context has drifted could not decode the message meant to resynchronise it.
+      - A Tier 1 frame that relies on context is refused for such a request.
+      - The reset flag (context §13.4) stays deferred.
+      - Tests: `unit.select`, and `unit.receiver`, where refreshes decode under a mismatched receiver context.
   - **Priority (language §11.2, packet §11.1).**
     - **Tier 1 safe.** The message carries Tier 1's priority (`is_alert` OR manual override) **whichever tier is sent**. Choosing the smaller encoding never lowers a verified alert.
     - **Tier 1 not safe.** Tier 2 carries the manual override only, as packet §11.1 says ("the only path available to Tier 2 messages"). An alert intent whose Tier 1 failed a gate was not verified, so it does not raise priority.
@@ -151,6 +156,22 @@
   - The cross-language literal-span policy (§5 block above), which Phase 9 did not decide.
   - When to send boosted rather than unboosted Tier 2, and whether to encode both and compare. The first message of a session, for example, pays 12 hash bits for an empty boost.
   - The §8.3 second-order effect (a larger Tier 2 buying better inheritance later) is not measured.
+
+- §10, §11 — **Receive side and the Tier 2 commit, pinned in Phase 10.** Receiver detail is in the receiver spec's implementation resolutions. Tested by `unit.receiver` and `conformance.c31`.
+  - **Tier 2 text commit (§11.2, §11.3; shared).** `native/src/tier2/commit.h` is one function used by both phones, over the same bytes and with the same extractor:
+    - One message is one commit, whatever number of clauses the extractor finds.
+    - A slot is written only when every clause that has a value there agrees on exactly one non-zero value and no clause is ambiguous there. Otherwise it is left absent; two values are never guessed between.
+    - `LAST_REF` is never written.
+    - It is used only when the sender's language equals the listener's. Otherwise both phones skip the update.
+    - `unit.receiver` runs whole corpus conversations in all nine fixture language pairs through Phase 9 selection and the receiver; both contexts are equal after every message.
+  - **Tier 1 receive (§10, §5.9).** The static model decodes whatever the context state. On a hash mismatch, only Inherit / Ref slots are unresolved, there is no text, and nothing is committed. Rendering uses the receiver's templates.
+  - **Tier 2 receive.** A boosted payload with a mismatch is not decoded; an unboosted one always is.
+  - **Template and form coverage (build-time, Phase 10).** `rulec::check_templates`, run by `itantra-packc`, previously skipped a language with no template for an intent and never checked forms. It now fails the build when:
+    - any language lacks a template for any intent
+    - a concept that can fill a named-form placeholder lacks that form in that language
+    - a pack using "native" digits has no digit set
+
+    A number in a named-form slot, or a concept in a digits slot, can still fail to render; the receiver reports that as `render_fail`.
 
 ### Changes from v1.4
 

@@ -59,7 +59,7 @@ bool tier2_verifies(const SelectRequest& r, const NativePayload& p, Priority pri
     Metadata m;
     u32 offset = 0u;
     if (parse_metadata(p.bytes, p.len, m, offset) != ParseStatus::Ok) return false;
-    const bool boosted = r.boost_tier2;
+    const bool boosted = tier2_boosted(r);
     return m.tier == Tier::Tier2 && m.seq == r.seq && m.priority == priority && m.language == r.sender_language &&
            m.hash_present == boosted &&
            (!boosted || m.context_hash == wire_context_hash(context_hash(*r.context))) &&
@@ -118,7 +118,8 @@ Tier1Verdict assess_tier1(const SelectTables& tables, const SelectRequest& r, co
         m.symbol_count != e.symbols.size() || m.seq != r.seq || m.negation != e.negated ||
         m.negation != r.clause->negated() || m.priority != e.priority ||
         (m.priority == Priority::Critical) != critical || m.hash_present != uses_context ||
-        (uses_context && m.context_hash != wire_context_hash(context_hash(*r.context)))) {
+        (uses_context && m.context_hash != wire_context_hash(context_hash(*r.context))) ||
+        (uses_context && !r.policy.allow_inheritance)) {   // a context-free message never relies on context
         return Tier1Verdict::Invalid;
     }
     return Tier1Verdict::Safe;
@@ -185,7 +186,7 @@ TierSelection select_tier(const SelectTables& tables, const SelectRequest& r) {
     m.seq           = r.seq;
     m.priority      = selection_priority(r, e, verdict);
     m.language      = r.sender_language;
-    m.boost_context = r.boost_tier2 ? r.context : nullptr;
+    m.boost_context = tier2_boosted(r) ? r.context : nullptr;
     NativePayload t2;
     t2.len           = 0u;
     t2.metadata_bits = 0u;

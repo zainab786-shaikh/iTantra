@@ -196,7 +196,7 @@ inline Tier2Run tier2_for(Fixture& f, const SelectRequest& r, Priority priority)
     m.seq           = r.seq;
     m.priority      = priority;
     m.language      = r.sender_language;
-    m.boost_context = r.boost_tier2 ? r.context : nullptr;
+    m.boost_context = tier2_boosted(r) ? r.context : nullptr;
     const u8*         text = r.input + r.tier2_text.begin;
     const std::size_t len  = r.tier2_text.end - r.tier2_text.begin;
     run.status = tier2_encode(f.base.tables, text, len, m, run.payload);

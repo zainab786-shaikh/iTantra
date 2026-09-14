@@ -370,6 +370,19 @@ itantra_fixture_test(unit.select select_test test/unit/select_test.cpp
 itantra_fixture_test(conformance.c17_c19 c17_c19_test test/conformance/c17_c19.cpp
         --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")
 
+# ---------------------------------------------------------------------------
+# Phase 10 — Receiver pipeline
+# ---------------------------------------------------------------------------
+itantra_fixture_test(unit.receiver receiver_test test/unit/receiver_test.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}"
+        --receiver-sources "${ITANTRA_CORE_DIR}/receiver/pipeline.h" "${ITANTRA_CORE_DIR}/receiver/pipeline.cpp"
+                           "${ITANTRA_CORE_DIR}/receiver/output.h"
+                           "${ITANTRA_CORE_DIR}/tier2/commit.h" "${ITANTRA_CORE_DIR}/tier2/commit.cpp")
+
+# C-31: any slot in unresolved[] is never rendered as a value.
+itantra_fixture_test(conformance.c31 c31_test test/conformance/c31.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")
+
 add_test(NAME rulec.accepts.fixture
          COMMAND itantra-rulec --common "${ITANTRA_FIXTURE_SRC}/common"
                  --rules "${ITANTRA_FIXTURE_SRC}/sender/rules.tsv" --answers "${ITANTRA_FIXTURE_SRC}/sender/answers.tsv")

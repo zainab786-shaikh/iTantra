@@ -310,8 +310,16 @@ bool check_templates(const CommonPack& common, const std::vector<std::pair<std::
         u32         first_mask = 0u;
         std::string first_language;
         for (const auto& entry : packs) {
+            if (entry.second == nullptr) continue;
             std::string_view text;
-            if (entry.second == nullptr || !entry.second->template_text(intent.id, text)) continue;
+            // Coverage (Phase 10): a missing template is an error, never skipped —
+            // a Tier 1 message for this intent could not be rendered in this
+            // language at all.
+            if (!entry.second->template_text(intent.id, text)) {
+                error = "rulec: intent " + std::to_string(intent.id) + " has no template in " + entry.first +
+                        " (every language must render every intent)";
+                return false;
+            }
             if (!parse_template(text, pieces)) {
                 error = "rulec: template for intent " + std::to_string(intent.id) + " in " + entry.first + " does not parse";
                 return false;
@@ -336,6 +344,30 @@ bool check_templates(const CommonPack& common, const std::vector<std::pair<std::
                 error = "rulec: templates for intent " + std::to_string(intent.id) + " use different slots in " +
                         first_language + " and " + entry.first + " (read-back R2)";
                 return false;
+            }
+            // Coverage (Phase 10): every concept that can fill a named-form
+            // placeholder has that form in this language, and "native" digits
+            // have a digit set. What remains possible — a number in a named-form
+            // slot, a concept in a digits slot — is the receiver's render_fail.
+            for (const TemplatePiece& p : pieces) {
+                if (!p.placeholder) continue;
+                if (p.text == "digits") continue;
+                if (p.text == "native") {
+                    if (entry.second->rules().primary_digits.size() != 10u) {
+                        error = "rulec: template for intent " + std::to_string(intent.id) + " in " + entry.first +
+                                " uses native digits, but the pack has no digit set";
+                        return false;
+                    }
+                    continue;
+                }
+                for (const ConceptInfo& c : common.concepts()) {
+                    std::string_view form;
+                    if (c.slot != p.slot || entry.second->form(c.id, p.text, form)) continue;
+                    error = "rulec: concept " + std::to_string(c.id) + " (" + slot_name(p.slot) + ") has no form \"" +
+                            std::string(p.text) + "\" in " + entry.first + ", which the template for intent " +
+                            std::to_string(intent.id) + " needs";
+                    return false;
+                }
             }
         }
     }
