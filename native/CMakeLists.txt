@@ -56,7 +56,8 @@ file(GLOB_RECURSE ITANTRA_C04_FILES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/test/conformance/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/*.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/*.cpp")
-list(APPEND ITANTRA_C04_FILES "${CMAKE_CURRENT_SOURCE_DIR}/test/itest.h")
+list(APPEND ITANTRA_C04_FILES "${CMAKE_CURRENT_SOURCE_DIR}/test/itest.h"
+                              "${CMAKE_CURRENT_SOURCE_DIR}/test/lang_fixture.h")
 
 # A core or vendored source outside native/src would silently escape the check.
 foreach(core_source IN LISTS ITANTRA_CORE_SOURCES ITANTRA_THIRD_PARTY_SOURCES)
@@ -241,3 +242,50 @@ itantra_host_test(unit.context context_test test/unit/context_test.cpp)
 target_sources(context_test PRIVATE test/unit/context_commit_other_tu.cpp)
 
 itantra_host_test(C-32 c32_test test/conformance/c32.cpp)
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Language Layer
+# ---------------------------------------------------------------------------
+# Pack compiler (a host tool, not part of the Android library).
+add_executable(itantra-packc tools/packc.cpp)
+target_link_libraries(itantra-packc PRIVATE itantra-core)
+target_compile_options(itantra-packc PRIVATE ${ITANTRA_HOST_WARNINGS})
+
+# Synthetic fixture packs (test artifact, language spec "synthetic fixtures
+# first"): compiled from source into the build tree on every build that
+# changes them, never committed as binaries.
+set(ITANTRA_FIXTURE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/synthetic")
+set(ITANTRA_FIXTURE_OUT "${CMAKE_BINARY_DIR}/fixtures/synthetic")
+set(ITANTRA_FIXTURE_LANGUAGES hi ta en)
+file(GLOB_RECURSE ITANTRA_FIXTURE_FILES CONFIGURE_DEPENDS
+        "${ITANTRA_FIXTURE_SRC}/common/*"
+        "${ITANTRA_FIXTURE_SRC}/lang/*")
+add_custom_command(
+        OUTPUT "${ITANTRA_FIXTURE_OUT}/packc.stamp"
+        COMMAND itantra-packc "${ITANTRA_FIXTURE_SRC}" "${ITANTRA_FIXTURE_OUT}" ${ITANTRA_FIXTURE_LANGUAGES}
+        COMMAND "${CMAKE_COMMAND}" -E touch "${ITANTRA_FIXTURE_OUT}/packc.stamp"
+        DEPENDS itantra-packc ${ITANTRA_FIXTURE_FILES}
+        COMMENT "Compiling synthetic language fixture packs"
+        VERBATIM)
+add_custom_target(itantra-fixtures ALL DEPENDS "${ITANTRA_FIXTURE_OUT}/packc.stamp")
+
+function(itantra_fixture_test test_name target source)
+    add_executable(${target} ${source})
+    target_link_libraries(${target} PRIVATE itantra-core)
+    target_include_directories(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+    target_compile_options(${target} PRIVATE ${ITANTRA_HOST_WARNINGS})
+    add_dependencies(${target} itantra-fixtures)
+    add_test(NAME ${test_name} COMMAND ${target} ${ARGN})
+endfunction()
+
+itantra_fixture_test(unit.normalize normalize_test test/unit/normalize_test.cpp
+        --nfc-subset "${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/unicode/NormalizationTest-16.0.0-subset.txt")
+itantra_fixture_test(unit.lexicon lexicon_test test/unit/lexicon_test.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")
+
+# C-20…C-24, C-27 on the synthetic fixture, plus the exit criterion "zero
+# language-specific code paths", checked over every native/src/lang file.
+file(GLOB ITANTRA_LANG_SOURCE_FILES CONFIGURE_DEPENDS "${ITANTRA_CORE_DIR}/lang/*.h" "${ITANTRA_CORE_DIR}/lang/*.cpp")
+itantra_fixture_test(conformance.c20_c27 c20_c27_test test/conformance/c20_c27.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}"
+        --lang-sources ${ITANTRA_LANG_SOURCE_FILES})

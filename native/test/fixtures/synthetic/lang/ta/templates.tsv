@@ -1,0 +1,8 @@
+# intent	template
+REPORT_FIRE_AT	{LOCATION:locative} தீ
+REQUEST_MEDICAL_AT	{LOCATION:locative} {OBJECT:plain} அனுப்புங்க
+REQUEST_SUPPLY_AT	{LOCATION:locative} {OBJECT:plain} அனுப்புங்க
+REQUEST_MOVE	{ACTOR:plain} நகர்
+REPORT_CASUALTY_COUNT	{QUANTITY:digits} பேர் காயம்
+REPORT_STATE	{STATE:plain}
+ANSWER_COUNT	{QUANTITY:native}

@@ -8,6 +8,41 @@
 **Companions:** `context-manager-spec.md` v1.2 · `tier-1-2-spec.md` v1.5 · `packet-security-transport-spec.md` v1.2 · `receiver-pipeline-spec.md` v1.2
 **Languages:** Hindi, Gujarati, Marathi, Kannada, Malayalam, Tamil, Telugu, Odia, Bengali, English
 
+### Implementation resolutions — v1.3 (no version bump, no spec-body change)
+
+Pinned when the language layer was implemented (implementation plan Phase 6, `native/src/lang/`). Items marked *pairing* change what both phones extract from the same Tier 2 text, so they are part of the pairing contract (§16 L1–L6).
+
+- §6.2 / L2 — **Unicode version 16.0.0.** NFC, White_Space, simple case folding and punctuation come from tables generated out of the Unicode Character Database (`native/tools/ucd/gen_unicode_tables.py`; input hashes in `native/src/lang/unicode_tables.h`). NFC was verified against the full `NormalizationTest-16.0.0.txt`: 19,965 lines, plus every codepoint not listed. *pairing*
+- §6.1 — pipeline details:
+  - Invalid UTF-8 bytes pass through unchanged, one unit each.
+  - Step 1 applies the pack's `strip_codepoints` after NFC.
+  - Step 3 turns every White_Space run into one U+0020 and trims both ends.
+  - Step 5 is Unicode simple case folding (CaseFolding status C + S).
+  - Step 6 turns each General_Category P* codepoint into a space, then collapses again, so "gate,send" stays two words.
+  - *pairing*
+- §4.2 `normalize.json` — exactly four keys, all arrays of strings; unknown keys rejected. `digit_sets` holds ten-codepoint strings for digits 0 … 9 (the first set is also used to render native digits). `strip_codepoints` and `clause_punctuation` hold single codepoints. `clause_conjunctions` holds whole tokens. *pairing*
+- §6.1 step 4 / context §7 — segmentation rule. A clause-punctuation codepoint ends a clause and stays with it. A token equal to a conjunction (case-folded) starts a new clause and stays with it. A piece with no content joins the clause before it, or the one after if it comes first. Clause segmentation is sender-only.
+- §8.1 / L3 — selection is one total order over lexicon matches, number words and digit runs: longest in **codepoints** first, then leftmost, then lexicon before number. Besides the codepoint-boundary check (L4), a match must start and end on **token boundaries**, so a word never matches inside a longer word; inflected forms are listed whole (§14.1). *pairing*
+- §6.4 / §8 typed values:
+  - Digit runs of up to 9 ASCII digits (after step 2) are numbers; number words come from `numbers.bin`.
+  - `patterns.bin` scanners are tried in file order at each position. The first that matches consumes its items and yields `value = a·n₁ + b·n₂ + c`, accepted only within `[min, max]`, with `min ≥ 1` and `max ≤ 65535`.
+  - A value outside that range is flagged unrepresentable and never stored.
+  - *pairing*
+- §8.2 / L5 — ambiguity: a slot with two different candidate values, or claimed by one surface form whose concepts lie in different slots, is **Ambiguous** and carries no value. The intent's expected slots (§4.1) filter candidates once the intent is known. *pairing*
+- §4.2 / Appendix B — file formats:
+  - every `.bin` is one container: magic `ITLP`, version 1, kind, big-endian payload, CRC-32;
+  - `lexicon.bin` and `numbers.bin` hold a sparse-transition Aho-Corasick automaton (§8.1), used in place;
+  - `meta.json` has exactly `language`, `pack_version`, `script`, `tts_voice`, `stt_confidence_threshold` (integer, 0 … 65535);
+  - pack language codes are ISO 639-1 for the ten languages.
+- §9 / §14.2 — templates use `{SLOT:form}`: a named form for a concept, `digits` or `native` for a number; a literal is inserted exactly as spoken (§10.5). A missing slot, form or template fails the render; nothing is invented.
+- **Open:** which 4-bit `language` value (packet §3.2) denotes which language.
+- **Open:** where negation words live — no pack file is specified for them (needed by Tier 1, tier §5.1).
+- **Open:** the scale of `stt_confidence_threshold`.
+- **Open:** conjunctions written as suffixes or clitics do not split clauses (whole tokens only).
+- **Open:** a numeric value of 0 (e.g. zero casualties, midnight) cannot be stored, because 0 means empty in context Appendix B. The fixture's TIME scanner (hour × 60 = minutes) is fixture data, not a codebook decision.
+- **Open:** whether Tier 2 codes the original clause text or its normalised form (Phase 7).
+- **Open:** the pack digest verified at HELLO (§18.1, L6), and platform mmap of packs (§4.4).
+
 ### Changes from v1.2
 
 - §11.2 — new: priority terminology. `is_alert` sets message priority `CRITICAL`; `HIGH` does not exist.

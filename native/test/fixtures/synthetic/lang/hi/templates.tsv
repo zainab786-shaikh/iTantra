@@ -1,0 +1,8 @@
+# intent	template
+REPORT_FIRE_AT	{LOCATION:locative} आग
+REQUEST_MEDICAL_AT	{LOCATION:locative} {OBJECT:plain} भेजो
+REQUEST_SUPPLY_AT	{LOCATION:locative} {OBJECT:plain} भेजो
+REQUEST_MOVE	{ACTOR:plain} हटो
+REPORT_CASUALTY_COUNT	{QUANTITY:digits} घायल
+REPORT_STATE	{STATE:plain}
+ANSWER_COUNT	{QUANTITY:native}

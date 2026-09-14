@@ -43,6 +43,14 @@ set(ITANTRA_CORE_SOURCES
         crypto/replay.cpp
         context/context.cpp
         context/hash.cpp
+        lang/json.cpp
+        lang/languages.cpp
+        lang/normalize.cpp
+        lang/clause.cpp
+        lang/lexicon.cpp
+        lang/pack.cpp
+        lang/extract.cpp
+        lang/render.cpp
 )
 
 # ---------------------------------------------------------------------------

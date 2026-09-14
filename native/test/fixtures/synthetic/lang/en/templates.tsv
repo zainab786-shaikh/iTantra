@@ -1,0 +1,8 @@
+# intent	template
+REPORT_FIRE_AT	Fire {LOCATION:locative}
+REQUEST_MEDICAL_AT	Send {OBJECT:plain} {LOCATION:locative}
+REQUEST_SUPPLY_AT	Send {OBJECT:plain} {LOCATION:locative}
+REQUEST_MOVE	{ACTOR:plain} move
+REPORT_CASUALTY_COUNT	{QUANTITY:digits} injured
+REPORT_STATE	{STATE:plain}
+ANSWER_COUNT	{QUANTITY:digits}

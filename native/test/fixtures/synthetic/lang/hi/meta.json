@@ -1,0 +1,7 @@
+{
+  "language": "hi",
+  "pack_version": 1,
+  "script": "Deva",
+  "tts_voice": "fixture-hi",
+  "stt_confidence_threshold": 600
+}

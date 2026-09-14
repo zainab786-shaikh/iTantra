@@ -1,0 +1,36 @@
+# concept	form	text
+north_gate	plain	வடக்கு வாசல்
+north_gate	locative	வடக்கு வாசலில்
+south_gate	plain	தெற்கு வாசல்
+south_gate	locative	தெற்கு வாசலில்
+hospital	plain	மருத்துவமனை
+hospital	locative	மருத்துவமனையில்
+bridge	plain	பாலம்
+bridge	locative	பாலத்தில்
+market	plain	சந்தை
+market	locative	சந்தையில்
+river	plain	நதி
+river	locative	நதியில்
+school	plain	பள்ளி
+school	locative	பள்ளியில்
+relief_camp	plain	நிவாரண முகாம்
+relief_camp	locative	நிவாரண முகாமில்
+ambulance	plain	ஆம்புலன்ஸ்
+water	plain	தண்ணீர்
+food	plain	உணவு
+medicine	plain	மருந்து
+oxygen	plain	ஆக்சிஜன்
+fire_brigade	plain	தீயணைப்பு வண்டி
+boat	plain	படகு
+blanket	plain	போர்வை
+police	plain	போலீஸ்
+doctor	plain	டாக்டர்
+rescue_team	plain	மீட்புக் குழு
+army	plain	ராணுவம்
+injured	plain	காயம்
+blocked	plain	அடைப்பு
+safe	plain	பாதுகாப்பாக
+trapped	plain	சிக்கியுள்ளனர்
+critical	plain	கடுமையான
+minor	plain	சிறிய
+urgent	plain	அவசரம்

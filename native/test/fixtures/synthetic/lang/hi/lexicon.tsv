@@ -1,0 +1,51 @@
+# surface	concept	form_class	origin
+उत्तर द्वार	north_gate	base	native
+उत्तर द्वार पर	north_gate	inflected	native
+north gate	north_gate	base	loanword
+दक्षिण द्वार	south_gate	base	native
+दक्षिण द्वार पर	south_gate	inflected	native
+south gate	south_gate	base	loanword
+अस्पताल	hospital	base	native
+अस्पताल में	hospital	inflected	native
+hospital	hospital	base	loanword
+पुल	bridge	base	native
+पुल पर	bridge	inflected	native
+बाज़ार	market	base	native
+बाज़ार में	market	inflected	native
+नदी	river	base	native
+नदी पर	river	inflected	native
+स्कूल	school	base	loanword
+स्कूल में	school	inflected	loanword
+राहत शिविर	relief_camp	base	native
+राहत शिविर में	relief_camp	inflected	native
+एम्बुलेंस	ambulance	base	loanword
+ambulance	ambulance	base	loanword
+पानी	water	base	native
+खाना	food	base	native
+दवा	medicine	base	native
+दवाई	medicine	base	stt_variant
+ऑक्सीजन	oxygen	base	loanword
+oxygen	oxygen	base	loanword
+दमकल	fire_brigade	base	native
+नाव	boat	base	native
+कंबल	blanket	base	native
+पुलिस	police	base	loanword
+police	police	base	loanword
+डॉक्टर	doctor	base	loanword
+doctor	doctor	base	loanword
+बचाव दल	rescue_team	base	native
+सेना	army	base	native
+आग	fire	base	native
+बाढ़	flood	base	native
+भेजो	send	base	native
+भेजें	send	inflected	native
+रोको	stop	base	native
+हटो	move	base	native
+घायल	injured	base	native
+बंद	blocked	base	native
+सुरक्षित	safe	base	native
+फंसे	trapped	base	native
+गंभीर	critical	base	native
+मामूली	minor	base	native
+जल्दी	urgent	base	native
+urgent	urgent	base	loanword

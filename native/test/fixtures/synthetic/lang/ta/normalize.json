@@ -1,0 +1,6 @@
+{
+  "digit_sets": ["௦௧௨௩௪௫௬௭௮௯"],
+  "strip_codepoints": [],
+  "clause_punctuation": [".", ",", "!", "?", ";"],
+  "clause_conjunctions": ["மற்றும்", "பிறகு", "and"]
+}

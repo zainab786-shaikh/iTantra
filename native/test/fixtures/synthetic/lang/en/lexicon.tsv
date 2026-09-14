@@ -1,0 +1,44 @@
+# surface	concept	form_class	origin
+north gate	north_gate	base	native
+north entrance	north_gate	base	native
+south gate	south_gate	base	native
+hospital	hospital	base	native
+bridge	bridge	base	native
+market	market	base	native
+café	market	base	loanword
+river	river	base	native
+school	school	base	native
+relief camp	relief_camp	base	native
+relief	relief_camp	base	native
+relief	food	base	native
+ambulance	ambulance	base	native
+ambulances	ambulance	inflected	native
+ambulence	ambulance	base	stt_variant
+water	water	base	native
+food	food	base	native
+medicine	medicine	base	native
+medicines	medicine	inflected	native
+oxygen	oxygen	base	native
+fire brigade	fire_brigade	base	native
+boat	boat	base	native
+boats	boat	inflected	native
+blanket	blanket	base	native
+blankets	blanket	inflected	native
+police	police	base	native
+doctor	doctor	base	native
+rescue team	rescue_team	base	native
+army	army	base	native
+fire	fire	base	native
+flood	flood	base	native
+collapse	collapse	base	native
+send	send	base	native
+stop	stop	base	native
+move	move	base	native
+evacuate	evacuate	base	native
+injured	injured	base	native
+blocked	blocked	base	native
+safe	safe	base	native
+trapped	trapped	base	native
+critical	critical	base	native
+minor	minor	base	native
+urgent	urgent	base	native
