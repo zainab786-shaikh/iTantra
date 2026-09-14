@@ -52,6 +52,10 @@ enum class PackKind : u16 {
     Templates = 5,
     Numbers   = 6,
     Patterns  = 7,
+    // Tier 2 tables (tier2/tables.h), added in Phase 7. Same container.
+    Subwords  = 8,
+    Ngram     = 9,
+    Boost     = 10,
 };
 
 // ---------------------------------------------------------------------------

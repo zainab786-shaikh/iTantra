@@ -21,8 +21,20 @@ Recorded when the format froze (implementation plan Phase 3). These pin values t
 - §4 / §4.1 flush: binary-scaled arithmetic coder (Witten–Neal–Cleary), 32-bit precision, `native/src/coder/coder.h`. **Exactly 2 flush bits.** Pending underflow ("follow") bits are payload, not flush: bit length after the flush = metadata bits + committed payload bits + 2. Decoding does not depend on any bit after the flush.
 - §4 CRC-8: not implemented. Encryption is phase 1 (§6.10) and the AEAD tag replaces the CRC (§4.1, §6.2). The plaintext payload is metadata + payload + flush + zero padding.
 - §8.3 versions: coder version `1` (`kCoderVersion`), packet format version `1` (`kPacketFormatVersion`). How HELLO carries them is not pinned here.
-- §6.10.1 golden vectors: `native/test/golden/vectors.bin`, file format v1 — 59 vectors, 11 probability tables, 120,651 bytes, SHA-256 `E02141ABDA5C468D1E649666CAB3575611BE15D5D2079C2FCF9DE90D4F11C7B9`. Literals are represented by their UTF-8 bytes coded under a 256-symbol table, because the Tier 1 and Tier 2 tables do not exist until implementation phases 7–8; vectors for those tables are added then, leaving every existing vector byte-identical.
+- §6.10.1 golden vectors: `native/test/golden/vectors.bin`, file format v1 — 59 vectors, 11 probability tables, 120,651 bytes, SHA-256 `E02141ABDA5C468D1E649666CAB3575611BE15D5D2079C2FCF9DE90D4F11C7B9`. Literals are represented by their UTF-8 bytes coded under a 256-symbol table, because the Tier 1 and Tier 2 tables do not exist until implementation phases 7–8; vectors for those tables are added then, leaving every existing vector byte-identical. (Clarified in Phase 7: they are added as a separate artifact, below. `vectors.bin` itself is never extended.)
+- §3.5 Tier 2 `symbol_count` (deferred in Phase 3, pinned in Phase 7): the **token count**. Tier 2 uses Kneser-Ney, which codes exactly one symbol per token, with no escape symbols. The metadata layout is unchanged (tier spec implementation resolutions).
+- §6.10.1 (Phase 7): **no Tier 1 / Tier 2 golden vectors exist yet, and `vectors.bin` is unchanged** (SHA-256 above).
+  - **Separate artifact.** Vectors for the Tier 1 and Tier 2 tables will be a separate golden-vector artifact, with its own file and SHA-256. It is generated and frozen **after Phase 8**, so both tiers freeze together, before C-01 in Phase 11.
+  - **Never appended.** They are never added to `vectors.bin`, which stays packet format version 1 byte for byte.
+  - **Pinned tables.** Each vector pins the tables it was built from: tokenizer and table versions, and a digest. Vectors built from the synthetic fixture tables are a determinism check, not production data.
+  - **Sequencing.** Freezing should wait until the 4-bit `language` mapping below is settled.
 - Still open: which language each 4-bit `language` value denotes (carried opaquely; language layer).
+- **Open — Phase 9 decision, not resolved:** a clause longer than 2078 tokens (`kMaxSymbolCount`). Three requirements conflict for such a clause:
+  - §5: `ASM_TOO_LONG` — "caller must split"
+  - §7.5: "the tier layer must not split a clause further — one clause is one message"
+  - `tier-1-2-spec.md` §6.7: Tier 2 always succeeds
+
+  The Phase 7 implementation returns `TooLong` with no payload and splits nothing (tier spec implementation resolutions).
 
 Recorded when encryption was implemented (implementation plan Phase 4). These pin the encryption items of §8 ("KDF definition and inputs · nonce derivation function · counter width and the seq → counter reconstruction rule") and the cipher suite and KDF version checked at HELLO (§8.3). Golden vectors are unchanged: they remain the pre-encryption payload (§6.10.1).
 

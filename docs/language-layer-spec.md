@@ -40,7 +40,7 @@ Pinned when the language layer was implemented (implementation plan Phase 6, `na
 - **Open:** the scale of `stt_confidence_threshold`.
 - **Open:** conjunctions written as suffixes or clitics do not split clauses (whole tokens only).
 - **Open:** a numeric value of 0 (e.g. zero casualties, midnight) cannot be stored, because 0 means empty in context Appendix B. The fixture's TIME scanner (hour × 60 = minutes) is fixture data, not a codebook decision.
-- **Open:** whether Tier 2 codes the original clause text or its normalised form (Phase 7).
+- **Resolved (Phase 7):** Tier 2 codes each clause's **original input bytes**, not its normalised form. A clause's Tier 2 input runs from its start in the original utterance to the next clause's start, so the clauses concatenate back to the utterance exactly (tier spec implementation resolutions; `native/src/tier2/encode.h`).
 - **Open:** the pack digest verified at HELLO (§18.1, L6), and platform mmap of packs (§4.4).
 
 ### Changes from v1.2

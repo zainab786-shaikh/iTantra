@@ -57,7 +57,8 @@ file(GLOB_RECURSE ITANTRA_C04_FILES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/*.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/*.cpp")
 list(APPEND ITANTRA_C04_FILES "${CMAKE_CURRENT_SOURCE_DIR}/test/itest.h"
-                              "${CMAKE_CURRENT_SOURCE_DIR}/test/lang_fixture.h")
+                              "${CMAKE_CURRENT_SOURCE_DIR}/test/lang_fixture.h"
+                              "${CMAKE_CURRENT_SOURCE_DIR}/test/tier2_fixture.h")
 
 # A core or vendored source outside native/src would silently escape the check.
 foreach(core_source IN LISTS ITANTRA_CORE_SOURCES ITANTRA_THIRD_PARTY_SOURCES)
@@ -259,7 +260,8 @@ set(ITANTRA_FIXTURE_OUT "${CMAKE_BINARY_DIR}/fixtures/synthetic")
 set(ITANTRA_FIXTURE_LANGUAGES hi ta en)
 file(GLOB_RECURSE ITANTRA_FIXTURE_FILES CONFIGURE_DEPENDS
         "${ITANTRA_FIXTURE_SRC}/common/*"
-        "${ITANTRA_FIXTURE_SRC}/lang/*")
+        "${ITANTRA_FIXTURE_SRC}/lang/*"
+        "${ITANTRA_FIXTURE_SRC}/tier2/*")
 add_custom_command(
         OUTPUT "${ITANTRA_FIXTURE_OUT}/packc.stamp"
         COMMAND itantra-packc "${ITANTRA_FIXTURE_SRC}" "${ITANTRA_FIXTURE_OUT}" ${ITANTRA_FIXTURE_LANGUAGES}
@@ -289,3 +291,15 @@ file(GLOB ITANTRA_LANG_SOURCE_FILES CONFIGURE_DEPENDS "${ITANTRA_CORE_DIR}/lang/
 itantra_fixture_test(conformance.c20_c27 c20_c27_test test/conformance/c20_c27.cpp
         --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}"
         --lang-sources ${ITANTRA_LANG_SOURCE_FILES})
+
+# ---------------------------------------------------------------------------
+# Phase 7 — Tier 2
+# ---------------------------------------------------------------------------
+# The Tier 2 tables are compiled with the fixture packs (itantra-packc, above)
+# into ${ITANTRA_FIXTURE_OUT}/tier2.
+itantra_fixture_test(unit.tier2 tier2_test test/unit/tier2_test.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")
+
+# C-05, C-06. No threshold: every case must round-trip exactly.
+itantra_fixture_test(conformance.c05_c06 c05_c06_test test/conformance/c05_c06.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")

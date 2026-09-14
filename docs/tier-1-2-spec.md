@@ -13,6 +13,45 @@
 
 - §5.6 / register #9 — **`TIME` never inherits and never uses `REF`.** This is authoritative. `context-manager-spec.md` §13.3 contains older wording that allows a resolved absolute `TIME` to be inherited; that wording is superseded (recorded in the context spec's Phase 5 implementation resolutions). A resolved `TIME` may still be sent explicitly. Enforced in `native/src/context/context.cpp` (`commit()` refuses `INHERIT` / `REF` on `TIME`) and tested by `unit.context` `time_never_inherits`. The Phase 8 slot-resolution code must not emit `INHERIT` or `REF` for `TIME`.
 
+- §6 — **Tier 2, pinned in Phase 7** (`native/src/tier2/`). Tested by `unit.tier2` and `conformance.c05_c06`. Each item below is one of two kinds:
+  - **Protocol (frozen).** Shared by both phones under tokenizer version 1 and table version 1. Changing one is a deliberate version bump.
+  - **Fixture-only / provisional.** A build-time choice made for the synthetic fixture tables. Not part of the wire contract. Must not be carried into production tables without a decision of its own.
+
+  **Protocol (frozen)**
+  - **Input semantics (§6.1).** Tier 2 codes a clause's **original input bytes**, never a normalised form. The language layer's §6.1 steps are not reversible (NFC, whitespace collapse, digit unification, case folding, punctuation stripping), and Tier 2 must return the sentence exactly (§1.1, contract C-05). Where the clause boundaries are cut is a separate, provisional convention (below).
+  - **Tokenizer (§6.2, T3, T3a).** Token IDs 0–255 are the 256 byte values; IDs from 256 are subwords of 2–64 bytes of complete UTF-8. Rule: at each position the longest subword, otherwise one byte token. Total and lossless by construction.
+  - **`symbol_count` (packet §3.5).** For Tier 2 it is the **token count**: exactly one coded symbol per token, no escapes, no end marker. Any clause of at most 2078 bytes always encodes. More than 2078 tokens returns `ASM_TOO_LONG` with no payload; what the sender does then is an open Phase 9 decision (below).
+  - **Frequency formula and floor (§6.3, T3b).** Interpolated Kneser-Ney structure over one preceding token, with history BOS at every clause start: `freq(s | h) = 1 + floor(lambda_h * uni[s] / 2^16) + w_h[s] + boost[s]`, integers only. The `1` is the uniform floor over the whole vocabulary and does not depend on training. Load bounds, checked when the tables load:
+    - `uni[]` sums to exactly 2^16
+    - each history's `lambda + sum(w) <= 2^23`, and the default lambda `<= 2^23`
+    - V <= 2^16
+    - boost mass <= 2^23 − 2^16
+
+    Together they keep every total within the coder's 2^24. PPM was not chosen, because its escape symbols would make `symbol_count` exceed the token count.
+  - **Boost key and gating (§6.4, §6.5, T5).** Reads only `current` of slots ACTOR … STATE in the pre-message context — the state the context hash covers — never `recent[]`, `age`, `seq`, `context_id` or `LAST_REF`. Keyed by (slot, value), because QUANTITY and TIME hold numbers, not concept IDs. One fixed magnitude per table; each token in the union of the slots' subword lists gets `+magnitude` once. Applied **if and only if `hash_present = 1`**:
+    - The encoder writes `wire_context_hash(context_hash(ctx))` of the same context it boosted from.
+    - The decoder refuses to decode — no partial output — unless its own pre-message wire hash matches.
+    - `hash_present = 0` never reads the context.
+  - **Reset (§6.6, T4).** Tables are immutable once loaded; every clause starts at BOS; no state crosses a clause boundary.
+  - **Table formats and versioning.** `tier2/subwords.bin` (tokenizer version 1), `ngram.bin` (table version 1) and `boost.bin` (table version 1) are `lang/pack.h` containers of kinds 8, 9 and 10, one set for all languages. Byte layouts are as documented in `tier2/subword.h`, `tier2/ngram.h` and `tier2/boost.h`. Loaders reject any other version, any mismatch in vocabulary size, and anything outside the load bounds.
+  - **Language.** The sender's `LangId` is carried unchanged, and the decoded text is the sender's exact bytes; nothing is translated. Which 4-bit value names which language is still open (packet spec).
+
+  **Fixture-only / provisional — not protocol**
+  - **n-gram order 2.** Order is a measured value (§13.2). Table version 1 accepts only order 2; order 3 would be a new table version, not a packet format change.
+  - **Kneser-Ney training choices** (`estimate_kneser_ney`): the discount 3/4; `uni[]` from continuation counts scaled to 2^16 by largest remainder; each seen history filled to the full 2^23 mass; default lambda 2^23 for an unseen history. These decide table contents, not the formula, the bounds or the format.
+  - **Boost-entry construction** (`native/tools/packc.cpp`): for each concept with a slot, the subword tokens (ID >= 256) of all its NFC lexicon surfaces in every compiled language, keyed (slot, concept ID).
+  - **Boost magnitude 65536** (`tier2/params.tsv`). A measured value (§13.2).
+  - **Vocabulary and training data.** The fixture vocabulary is `tier2/subwords.tsv` plus every lexicon surface and word and every training word. The training texts are `tier2/train.tsv` and the lexicon surfaces. How production vocabulary and training data are chosen is not decided.
+  - **Clause input cut** (`tier2_clause_inputs`). A clause's input runs from its start in the utterance (0 for the first clause) to the next clause's start (the end of input for the last). Separators therefore stay with the clause before them, and the clauses concatenate back to the utterance byte for byte. This is a sender-side convention, not wire: the receiver never sees the cut, and every cut yields a valid payload. It stays provisional until the Phase 9 sender pipeline adopts it. The original-byte semantics above remain frozen.
+  - **Test language IDs** 1 / 2 / 3 in `native/test/tier2_fixture.h`. Test-only; not a mapping.
+
+  **Open — Phase 9 decision, not resolved:** a clause longer than 2078 tokens. The specs give three requirements that cannot all hold for such a clause:
+  - packet §5: `ASM_TOO_LONG` — "caller must split"
+  - packet §7.5: "the tier layer must not split a clause further — one clause is one message"
+  - tier §6.7: Tier 2 always succeeds, with no failure path
+
+  The worst case is about 2078 bytes the vocabulary does not cover. The Phase 7 implementation returns `TooLong` with no payload and splits nothing. Phase 9 (tier selection) must decide the outcome.
+
 ### Changes from v1.4
 
 - §5.4 — the rule table's numeric ordering field is renamed **`rule_priority`**, to keep it distinct from message priority.

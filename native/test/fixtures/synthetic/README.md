@@ -28,6 +28,10 @@ The vocabulary is illustrative. It has **not** had the native-speaker review tha
 common/        shared data, compiled to concepts.bin, intents.bin, schema_version
 lang/<code>/   per language, compiled to meta.json, normalize.json and the five .bin files
 corpus/        test utterances and expected results (read by the conformance tests, never compiled)
+tier2/         Tier 2 vocabulary pieces, training texts and boost magnitude (Phase 7),
+               compiled to tier2/subwords.bin, ngram.bin, boost.bin
 ```
 
 The source formats are documented in `native/tools/packc.cpp`. The build compiles these sources into `<build>/fixtures/synthetic/` with `itantra-packc`.
+
+The Tier 2 tables are trained on `tier2/train.tsv` and the lexicon surfaces — **not** on `corpus/`, so C-05 and C-06 test on text the tables have not seen. The training texts use Devanagari, Tamil and Latin only, so every other script is absent from all training data (C-06). The vocabulary, counts and boost magnitude are fixture values, not decisions (tier §13.2).

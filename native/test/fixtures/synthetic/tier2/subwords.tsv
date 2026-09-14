@@ -1,0 +1,13 @@
+# Extra Tier 2 vocabulary entries, one per line (tier2/subword.h; format in native/tools/packc.cpp).
+# Every lexicon surface and every training word is added automatically. These are
+# pieces that are not whole words: common suffixes and word fragments. Illustrative only.
+ில்
+க்கு
+ுக்கு
+கள்
+ங்க
+ों
+ने
+ing
+ed
+tion

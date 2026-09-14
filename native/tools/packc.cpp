@@ -1,4 +1,5 @@
 // Language pack compiler — language-layer-spec §4, Appendix B. Plan Phase 6.
+// Tier 2 table compiler — tier §6.2–6.4. Plan Phase 7.
 //
 //   itantra-packc <source-dir> <output-dir> <language-code>...
 //
@@ -19,6 +20,9 @@
 //   lang/<code>/patterns.tsv  slot  pattern  a  b  c  min  max    ({N} = a number)
 //   lang/<code>/forms.tsv     concept  form  text
 //   lang/<code>/templates.tsv intent  template
+//   tier2/subwords.tsv        subword                 (optional directory, below)
+//   tier2/train.tsv           language  text
+//   tier2/params.tsv          key  value              (boost_magnitude)
 //
 // Surface forms, number words and pattern words are stored normalised exactly
 // as matched text is (normalize_surface: §6.1 steps 1–3, 5, 6, with the pack's
@@ -28,7 +32,25 @@
 //
 // Names (concept, intent, category) exist only in the sources; the packs
 // carry the numeric IDs, which are the wire contract (§7.4).
+//
+// Tier 2 tables — written to <output-dir>/tier2/ when <source-dir>/tier2/
+// exists (tier2/tables.h). One set for all compiled languages. The runtime
+// contract is only the three files and the tokenizer rule; how the vocabulary
+// and counts are chosen is this compiler's (fixture) policy:
+//
+//   vocabulary   every tier2/subwords.tsv entry; every lexicon surface of every
+//                compiled language in NFC, whole and each space-separated word;
+//                every space-separated word of the training texts — the derived
+//                ones kept only if they are valid subwords (2–64 bytes of UTF-8).
+//                Sorted by byte value; token IDs 256… in that order.
+//   n-gram       estimate_kneser_ney over the training texts (as written) and
+//                the NFC lexicon surfaces, each tokenized by the runtime
+//                tokenizer loaded from the subwords.bin just written.
+//   boost        for every concept with a slot, the subword tokens (ID >= 256)
+//                of all its NFC lexicon surfaces in every compiled language,
+//                keyed (slot, concept ID); magnitude from params.tsv.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -44,6 +66,7 @@
 #include "lang/normalize.h"
 #include "lang/pack.h"
 #include "lang/utf8.h"
+#include "tier2/tables.h"
 
 using namespace itantra;
 
@@ -170,6 +193,7 @@ std::string surface(const std::string& raw, const NormalizeRules& rules, const s
 struct Common {
     std::map<std::string, u16> concepts;
     std::map<std::string, u16> intents;
+    std::map<u16, u8>          concept_slots;   // concept ID → slot, or kNoSlot
 };
 
 Common compile_common(const std::string& src, const std::string& out) {
@@ -206,6 +230,7 @@ Common compile_common(const std::string& src, const std::string& out) {
             mask |= it->second;
         }
         names.concepts[r.cols[1]] = static_cast<u16>(id);
+        names.concept_slots[static_cast<u16>(id)] = slot;
         concepts.push_back(ConceptInfo{static_cast<u16>(id), slot, cls->second, mask});
     }
 
@@ -336,6 +361,117 @@ void compile_language(const std::string& src, const std::string& out, const std:
     write_bytes(out_dir + "/templates.bin", serialize_templates(templates));
 }
 
+struct LexiconSurface {
+    std::string text;         // NFC, as written in lexicon.tsv
+    u16         concept_id;
+    u8          slot;
+};
+
+void compile_tier2(const std::string& src, const std::string& out, const std::vector<std::string>& languages,
+                   const Common& names) {
+    const std::string in_dir = src + "/tier2";
+    const std::string out_dir = out + "/tier2";
+    std::filesystem::create_directories(out_dir);
+
+    // ---- vocabulary ----
+    std::set<std::string> vocabulary;
+    for (const Row& r : read_tsv(in_dir + "/subwords.tsv", 1u)) {
+        const std::string& s = r.cols[0];
+        if (const char* why = subword_fault(s)) die(r.where + ": " + why);
+        if (s.front() == ' ' || s.back() == ' ') die(r.where + ": leading or trailing space in a subword");
+        if (!vocabulary.insert(s).second) die(r.where + ": duplicate subword");
+    }
+    const auto offer = [&vocabulary](const std::string& s) {
+        if (subword_fault(s) == nullptr) vocabulary.insert(s);
+    };
+
+    std::vector<LexiconSurface> surfaces;
+    for (const std::string& code : languages) {
+        for (const Row& r : read_tsv(src + "/lang/" + code + "/lexicon.tsv", 4u)) {
+            const auto it = names.concepts.find(r.cols[1]);
+            if (it == names.concepts.end()) die(r.where + ": unknown concept '" + r.cols[1] + "'");
+            surfaces.push_back(LexiconSurface{unicode::nfc(r.cols[0]), it->second, names.concept_slots.at(it->second)});
+        }
+    }
+
+    std::vector<std::string> training;
+    for (const Row& r : read_tsv(in_dir + "/train.tsv", 2u)) {
+        if (std::find(languages.begin(), languages.end(), r.cols[0]) == languages.end()) {
+            die(r.where + ": language '" + r.cols[0] + "' is not being compiled");
+        }
+        if (r.cols[1].empty() || !valid_utf8(r.cols[1])) die(r.where + ": training text must be non-empty UTF-8");
+        training.push_back(r.cols[1]);
+    }
+    if (training.empty()) die(in_dir + "/train.tsv: no training texts");
+
+    for (const LexiconSurface& s : surfaces) {
+        offer(s.text);
+        for (const std::string& w : split(s.text, ' ')) offer(w);
+    }
+    for (const std::string& t : training) {
+        for (const std::string& w : split(t, ' ')) offer(w);
+    }
+    const std::vector<std::string> subwords(vocabulary.begin(), vocabulary.end());
+    if (subwords.size() > kMaxVocabularySize - kByteTokenCount) die("tier2: vocabulary larger than 65536 tokens");
+    write_bytes(out_dir + "/subwords.bin", serialize_subwords(subwords));
+
+    // Tokenize with the vocabulary exactly as the runtime loads it.
+    SubwordVocabulary vocab;
+    {
+        const std::vector<u8> file = read_bytes(out_dir + "/subwords.bin");
+        const u8*   payload = nullptr;
+        std::size_t length  = 0u;
+        std::string why;
+        if (!unwrap_container(file, PackKind::Subwords, payload, length, why) || !vocab.load(payload, length, why)) {
+            die("tier2: subwords.bin does not load: " + why);
+        }
+    }
+    const auto tokens_of = [&vocab](const std::string& text) {
+        std::vector<Symbol> t;
+        vocab.tokenize(reinterpret_cast<const u8*>(text.data()), text.size(), t);
+        return t;
+    };
+
+    // ---- n-gram table ----
+    std::vector<std::vector<Symbol>> sequences;
+    for (const std::string& t : training) sequences.push_back(tokens_of(t));
+    for (const LexiconSurface& s : surfaces) sequences.push_back(tokens_of(s.text));
+    NgramSource ngram;
+    std::string why;
+    if (!estimate_kneser_ney(vocab.size(), sequences, ngram, why)) die("tier2: " + why);
+    write_bytes(out_dir + "/ngram.bin", serialize_ngram(ngram));
+
+    // ---- boost table ----
+    u64  magnitude      = 0u;
+    bool have_magnitude = false;
+    for (const Row& r : read_tsv(in_dir + "/params.tsv", 2u)) {
+        if (r.cols[0] != "boost_magnitude") die(r.where + ": unknown parameter '" + r.cols[0] + "'");
+        magnitude      = parse_uint(r.cols[1], r.where);
+        have_magnitude = true;
+    }
+    if (!have_magnitude || magnitude == 0u || magnitude > 0xFFFFFFFFu) {
+        die(in_dir + "/params.tsv: boost_magnitude is required, at least 1");
+    }
+
+    std::map<std::pair<u8, u16>, std::set<u32>> boost_sets;
+    for (const LexiconSurface& s : surfaces) {
+        if (s.slot == kNoSlot) continue;
+        std::set<u32>& set = boost_sets[std::make_pair(s.slot, s.concept_id)];
+        for (Symbol t : tokens_of(s.text)) {
+            if (t >= kByteTokenCount) set.insert(t);
+        }
+    }
+    BoostSource boost;
+    boost.vocab_size = vocab.size();
+    boost.magnitude  = static_cast<u32>(magnitude);
+    for (const auto& kv : boost_sets) {
+        if (kv.second.empty()) continue;
+        boost.entries.push_back(
+            BoostSource::Entry{kv.first.first, kv.first.second, std::vector<u32>(kv.second.begin(), kv.second.end())});
+    }
+    write_bytes(out_dir + "/boost.bin", serialize_boost(boost));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -355,8 +491,10 @@ int main(int argc, char** argv) {
         !common.load(std::move(common_files), error)) {
         die("compiled common data does not load: " + error);
     }
+    std::vector<std::string> languages;
     for (int i = 3; i < argc; ++i) {
         const std::string code = argv[i];
+        languages.push_back(code);
         compile_language(src, out, code, names);
         PackFiles files;
         LanguagePack pack;
@@ -370,5 +508,18 @@ int main(int argc, char** argv) {
     }
     std::printf("packc: common  %zu concepts, %zu intents, schema %u\n", common.concepts().size(),
                 common.intents().size(), common.schema_version());
+
+    if (std::filesystem::is_directory(src + "/tier2")) {
+        compile_tier2(src, out, languages, names);
+        PackFiles tier2_files;
+        Tier2Tables tables;
+        if (!read_pack_directory(out + "/tier2", Tier2Tables::file_names(), tier2_files, error) ||
+            !tables.load(tier2_files, error)) {
+            die("compiled Tier 2 tables do not load: " + error);
+        }
+        std::printf("packc: tier2  %u tokens (%u subwords), %u n-gram rows, %u boost entries, boost magnitude %u\n",
+                    tables.vocabulary().size(), tables.vocabulary().size() - kByteTokenCount,
+                    tables.ngram().row_count(), tables.boost().entry_count(), tables.boost().magnitude());
+    }
     return 0;
 }

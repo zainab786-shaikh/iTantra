@@ -51,6 +51,12 @@ set(ITANTRA_CORE_SOURCES
         lang/pack.cpp
         lang/extract.cpp
         lang/render.cpp
+        tier2/subword.cpp
+        tier2/ngram.cpp
+        tier2/boost.cpp
+        tier2/tables.cpp
+        tier2/encode.cpp
+        tier2/decode.cpp
 )
 
 # ---------------------------------------------------------------------------

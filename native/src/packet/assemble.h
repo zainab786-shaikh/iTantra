@@ -83,13 +83,12 @@ using Symbol = u32;
 //       versions checked at HELLO (context §18.1, packet §8.3). A version
 //       mismatch must fail pairing visibly; it cannot be detected here.
 //
-// DEFERRED to Phase 7 — Tier 2 symbol_count semantics. symbol_count counts
-// CODED symbols: one model_at() call and one coder call each. Whether a Tier 2
-// token is always exactly one coded symbol (Kneser-Ney: a full smoothed
-// integer distribution per context) or may add escape symbols (PPM escape
-// backoff, so symbol_count can exceed the token count) is the Kneser-Ney vs
-// PPM decision of tier §6.3 / §13.2, not taken here. Either choice fits this
-// interface and leaves the packet metadata layout unchanged.
+// symbol_count counts CODED symbols: one model_at() call and one coder call
+// each. Tier 2 semantics, RESOLVED in Phase 7 (tier2/ngram.h, tier2/encode.h):
+// Tier 2 uses Kneser-Ney — a full smoothed integer distribution per context —
+// so every Tier 2 token is exactly one coded symbol and a Tier 2 symbol_count
+// is the token count. There are no PPM escape symbols. The packet metadata
+// layout is unchanged.
 class PayloadModel {
 public:
     virtual ~PayloadModel() = default;

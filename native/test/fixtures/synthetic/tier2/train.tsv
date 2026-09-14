@@ -1,0 +1,41 @@
+# Tier 2 training texts. Columns: language	text
+#
+# Deliberately separate from corpus/utterances.tsv: C-05 and C-06 test on text the
+# tables were not trained on. Devanagari, Tamil and Latin only, so other scripts stay
+# absent from all training data (C-06). Illustrative, not reviewed by native speakers.
+hi	आग लगी है
+hi	पुल पर पानी भेजो
+hi	अस्पताल में दवाई भेजो
+hi	स्कूल में लोग फंसे हैं
+hi	नदी में बाढ़ है
+hi	दक्षिण द्वार पर पुलिस भेजो
+hi	बाजार में खाना भेजो
+hi	डॉक्टर को भेजो
+hi	पांच लोग घायल हैं
+hi	राहत शिविर में कंबल भेजो
+hi	उत्तर द्वार बंद है
+hi	सेना को बुलाओ
+ta	தீ பரவுகிறது
+ta	பாலத்தில் தண்ணீர் அனுப்புங்க
+ta	மருத்துவமனையில் மருந்து அனுப்புங்க
+ta	பள்ளியில் மக்கள் சிக்கியுள்ளனர்
+ta	நதியில் வெள்ளம்
+ta	தெற்கு வாசலில் போலீஸ் அனுப்புங்க
+ta	சந்தையில் உணவு அனுப்புங்க
+ta	டாக்டர் அனுப்புங்க
+ta	ஐந்து பேர் காயம்
+ta	நிவாரண முகாமில் போர்வை அனுப்புங்கள்
+ta	வடக்கு வாசல் அடைப்பு
+ta	ராணுவம் வர வேண்டும்
+en	Fire is spreading near the school
+en	Send water to the bridge
+en	Send medicine to the hospital
+en	People are trapped in the school
+en	Flood at the river
+en	Send police to the south gate
+en	Send food to the market
+en	Send a doctor
+en	Five people injured
+en	Send blankets to the relief camp
+en	North gate is blocked
+en	Call the army
