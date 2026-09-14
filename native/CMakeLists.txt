@@ -360,6 +360,16 @@ target_compile_options(tier_vectors_test PRIVATE ${ITANTRA_HOST_WARNINGS})
 add_test(NAME conformance.tier_vectors
          COMMAND tier_vectors_test --vectors "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/tier_vectors.bin")
 
+# ---------------------------------------------------------------------------
+# Phase 9 — Tier selection
+# ---------------------------------------------------------------------------
+itantra_fixture_test(unit.select select_test test/unit/select_test.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")
+
+# C-17, C-18, C-19, including the negative test: a payload-only comparison fails it.
+itantra_fixture_test(conformance.c17_c19 c17_c19_test test/conformance/c17_c19.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")
+
 add_test(NAME rulec.accepts.fixture
          COMMAND itantra-rulec --common "${ITANTRA_FIXTURE_SRC}/common"
                  --rules "${ITANTRA_FIXTURE_SRC}/sender/rules.tsv" --answers "${ITANTRA_FIXTURE_SRC}/sender/answers.tsv")

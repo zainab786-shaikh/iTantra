@@ -135,7 +135,8 @@ struct NativePayload {
 
 enum class AsmResult : u8 {
     Ok,
-    TooLong,        // ASM_TOO_LONG: symbol_count > kMaxSymbolCount; caller must split
+    TooLong,        // ASM_TOO_LONG: symbol_count > kMaxSymbolCount; the clause is never
+                    // split — tier selection handles it (select/select.h, ClauseTooLong)
     InvalidField,   // a metadata field outside its range, a field on the wrong
                     // tier, or a null model / symbols pointer
     CoderFailure,   // a symbol with p == 0 under its model (programming error;

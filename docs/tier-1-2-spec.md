@@ -20,7 +20,7 @@
   **Protocol (frozen)**
   - **Input semantics (§6.1).** Tier 2 codes a clause's **original input bytes**, never a normalised form. The language layer's §6.1 steps are not reversible (NFC, whitespace collapse, digit unification, case folding, punctuation stripping), and Tier 2 must return the sentence exactly (§1.1, contract C-05). Where the clause boundaries are cut is a separate, provisional convention (below).
   - **Tokenizer (§6.2, T3, T3a).** Token IDs 0–255 are the 256 byte values; IDs from 256 are subwords of 2–64 bytes of complete UTF-8. Rule: at each position the longest subword, otherwise one byte token. Total and lossless by construction.
-  - **`symbol_count` (packet §3.5).** For Tier 2 it is the **token count**: exactly one coded symbol per token, no escapes, no end marker. Any clause of at most 2078 bytes always encodes. More than 2078 tokens returns `ASM_TOO_LONG` with no payload; what the sender does then is an open Phase 9 decision (below).
+  - **`symbol_count` (packet §3.5).** For Tier 2 it is the **token count**: exactly one coded symbol per token, no escapes, no end marker. Any clause of at most 2078 bytes always encodes. More than 2078 tokens returns `ASM_TOO_LONG` with no payload; what the sender does then was decided in Phase 9 (§8 block below).
   - **Frequency formula and floor (§6.3, T3b).** Interpolated Kneser-Ney structure over one preceding token, with history BOS at every clause start: `freq(s | h) = 1 + floor(lambda_h * uni[s] / 2^16) + w_h[s] + boost[s]`, integers only. The `1` is the uniform floor over the whole vocabulary and does not depend on training. Load bounds, checked when the tables load:
     - `uni[]` sums to exactly 2^16
     - each history's `lambda + sum(w) <= 2^23`, and the default lambda `<= 2^23`
@@ -45,12 +45,7 @@
   - **Clause input cut** (`tier2_clause_inputs`). A clause's input runs from its start in the utterance (0 for the first clause) to the next clause's start (the end of input for the last). Separators therefore stay with the clause before them, and the clauses concatenate back to the utterance byte for byte. This is a sender-side convention, not wire: the receiver never sees the cut, and every cut yields a valid payload. It stays provisional until the Phase 9 sender pipeline adopts it. The original-byte semantics above remain frozen.
   - **Test language IDs** 1 / 2 / 3 in `native/test/tier2_fixture.h`. Test-only; not a mapping.
 
-  **Open — Phase 9 decision, not resolved:** a clause longer than 2078 tokens. The specs give three requirements that cannot all hold for such a clause:
-  - packet §5: `ASM_TOO_LONG` — "caller must split"
-  - packet §7.5: "the tier layer must not split a clause further — one clause is one message"
-  - tier §6.7: Tier 2 always succeeds, with no failure path
-
-  The worst case is about 2078 bytes the vocabulary does not cover. The Phase 7 implementation returns `TooLong` with no payload and splits nothing. Phase 9 (tier selection) must decide the outcome.
+  **Resolved in Phase 9 (was open here):** a clause longer than 2078 tokens, where packet §5 ("caller must split"), packet §7.5 ("the tier layer must not split a clause further") and §6.7 ("Tier 2 always succeeds") cannot all hold. See "Clause longer than 2078 Tier 2 tokens" in the §8 block below. The Phase 7 encoder is unchanged: it still returns `TooLong` with no payload and splits nothing.
 
 - §5 — **Tier 1, pinned in Phase 8** (`native/src/tier1/`). Tested by `unit.tier1`, `conformance.c07`, `rulec.*` and `conformance.tier_vectors`. Three kinds of item: **protocol (frozen)** — both phones, Tier 1 table version 1, pinned by `native/test/golden/tier_vectors.bin`; **sender-only** — the sender may change these without breaking compatibility (§3.4, context §13.2); **fixture-only / provisional** — values chosen for the synthetic fixture or pending measurement.
 
@@ -94,12 +89,68 @@
     - No script or language field is added to the wire; a literal is raw bytes (the frame above), and `tier_vectors.bin` is unchanged.
     - The receiver already knows the sender's language from HELLO (context §18.1). Marking literal spans for TTS is output-layer work: today `render_frame` returns one flat string.
     - Phase 9, which knows both languages, decides the cross-language policy (for example, refusing multi-word literals there). Mixed output itself is accepted (language §10.5); the long-term mitigation is provisioning (§15.2).
+    - **Phase 9 did not decide it.** Phase 9 was instructed to preserve the cross-language behaviour already established, so selection applies no literal-span policy and still needs a decision.
   - **Read-back and alternative surface forms.** Templates render one form, so number words ("three" vs "3"), code-mixed loanwords ("north gate पर" vs "उत्तर द्वार पर") and STT variants leave a spoken word unexplained. Under R1 they are refused as `ReadbackUnexplainedWord`: safe, but it lowers the Tier 1 hit rate (see the fixture coverage report). Whether a concept-level comparison should be added is not decided (§5.8 specifies word level).
   - **Ref.** The Phase 8 sender never emits Ref. The golden vectors pin Ref's encoding, not its meaning, so **any future change to what Ref means requires a Tier 1 table / protocol version bump**. Its final semantics are otherwise not resolved in Phase 8 (receiver pipeline, Phase 10). Also open: how LAST_REF is chosen, and where pronoun words live — no pack data is specified.
   - **Which messages are fully explicit** (the periodic-explicit N, context §16.1) and the reset flag (context §13.4) — Phase 12.
   - **The STT confidence scale** is still open (language spec). The comparison is `confidence < threshold` → no Tier 1.
   - **Receiver / sender separation** is enforced at include level (a test scans the shared files). A receiver-only library is Phase 10–11.
-  - **More than 2078 symbols** (packet §5 vs §7.5 vs §6.7) — the open Phase 9 decision above. Tier 1 reports it as `TooLong` (Tier 1 not available).
+  - **More than 2078 symbols** (packet §5 vs §7.5 vs §6.7) — resolved in Phase 9 (§8 block below). Tier 1 reports it as `TooLong` (Tier 1 not available).
+
+- §8 — **Tier selection, pinned in Phase 9** (`native/src/select/`). Tested by `unit.select` and `conformance.c17_c19`.
+  - **Scope:** every item here is **sender-only**.
+  - **Unchanged:** the wire format, the frame, the models, the tables, the Tier 1 and Tier 2 encoders, and both golden artifacts (`vectors.bin`, `tier_vectors.bin`).
+
+  **Sender-only**
+  - **Order (§8).** Tier 1 is encoded first, and its safety is decided. Tier 2 is then encoded at the resulting priority. The two are compared only when Tier 1 is safe.
+  - **Safety (§8.1).** Every `tier1_encode` outcome other than `Ok` sends Tier 2. Outcomes map to §8.1 rows as follows:
+    - STT confidence: `LowConfidence`
+    - no head: `NoHead`, `AmbiguousHead`
+    - two top-class concepts: `TwoTopClass`
+    - no rule: `NoRule`, `AmbiguousRuleSlot`, `NegationWithoutRule`
+    - required slot missing: `RequiredSlotMissing`, `LiteralNotPlaceable`
+    - read-back lost meaning: the four `Readback*` outcomes
+    - negation copies disagree: `SelfCheckFailed`
+    - sender refusals outside the table: `NegationAmbiguous`, `AmbiguousSlot`, `UnrepresentableValue`, `ValueKindCollision`, `LiteralTooLong`
+    - Tier 1 unavailable: `TooLong`
+    - Tier 1 invalid: `InvalidArgument`
+
+    For an `Ok` encoding the selector also parses the Tier 1 payload's metadata:
+    - Negation copies that disagree send Tier 2.
+    - The following must all agree with the encoding, or the payload is invalid and Tier 2 is sent: tier, `symbol_count`, `seq`, negation (both the encoding's flag and the clause's), priority (`is_alert` OR override), `hash_present` (the frame uses context), and `context_hash` (the pre-message context).
+  - **Size (§8.2, §13.1, C-19).**
+    - **Packet size.** `native packet bytes = plaintext native payload bytes + kAeadTagBytes (4)`. The plaintext payload is exactly metadata + coder bits + 2 flush bits + zero padding to a byte. `kAeadOverheadBytes` (0 under the debug AEAD bypass) is never used.
+    - **Rule (approved after the Phase 9 review).** Tier 1 is sent only if its packet is **strictly smaller**. An exact-size tie sends Tier 2: it is lossless and leaves a richer context (§8.3).
+    - **Why coder bits alone are wrong.** Comparing coder bits ("payload size") alone can choose the larger packet, for two reasons:
+      - Metadata differs by tier: Tier 1 is 19 bits and Tier 2 is 21. Each tier adds a 12-bit hash under its own condition, and more than 30 symbols adds 11 bits.
+      - Byte padding differs.
+    - `conformance.c17_c19` requires such cases on the fixture, in both directions, and checks every packet size against real sealing.
+    - The Kotlin outer frame is the same for both tiers and is not counted.
+  - **Tier 2 form.** The caller chooses between two forms (`SelectRequest::boost_tier2`); the selector does not encode both:
+    - boosted: `hash_present = 1`, from the pre-message context
+    - unboosted: the §6.5 recovery path
+  - **Priority (language §11.2, packet §11.1).**
+    - **Tier 1 safe.** The message carries Tier 1's priority (`is_alert` OR manual override) **whichever tier is sent**. Choosing the smaller encoding never lowers a verified alert.
+    - **Tier 1 not safe.** Tier 2 carries the manual override only, as packet §11.1 says ("the only path available to Tier 2 messages"). An alert intent whose Tier 1 failed a gate was not verified, so it does not raise priority.
+  - **Clause longer than 2078 Tier 2 tokens (packet §5 vs §7.5 vs §6.7) — resolved; approved after the Phase 9 review.**
+    - **No splitting.** No layer splits the clause: one clause is one message (packet §7.5), so context commits stay ordered.
+    - **Tier 1 safe.** Tier 1, if it is safe and fits, is sent as the only candidate.
+    - **Tier 1 not safe.** Selection returns `ClauseTooLong`: no payload, no context update, and the counter is not consumed. The sender pipeline must tell the operator rather than send part of the clause. How the operator is told is Phase 12.
+    - **Reading of packet §5.** "Caller must split" is read as the layer that forms clauses. Its rule is fixed (context §8), so there is no further cut to make.
+    - **Reading of §6.7.** §6.7 is read as the coder's totality: every token has a finite code, within packet §5's size bound. A clause of at most 2078 bytes always has a Tier 2 payload.
+    - A Tier 2 failure other than `TooLong` (broken tables) with Tier 1 unsafe returns `NoEncoding`.
+    - The comments in `tier2/encode.h` and `packet/assemble.h` that said "caller must split" now point here. The change is comments only; no code changed.
+  - **Context update (§11.2, §11.3).** Selection reports which update applies and commits nothing itself:
+    - Tier 1: commit the frame's payload.
+    - Tier 2, same language: both phones update from the text.
+    - Tier 2, different languages: both skip the update.
+  - **Cross-language.** Unchanged. §8.2's safe-and-smaller rule applies in every language pair; the §8.4 preference is still deferred. `unit.select` checks that every listener language gets the same choice and the same bytes.
+  - **Clause input cut.** Still provisional. The selector takes the clause's Tier 2 bytes as a span; the tests use `tier2_clause_inputs`.
+
+  **Open**
+  - The cross-language literal-span policy (§5 block above), which Phase 9 did not decide.
+  - When to send boosted rather than unboosted Tier 2, and whether to encode both and compare. The first message of a session, for example, pays 12 hash bits for an empty boost.
+  - The §8.3 second-order effect (a larger Tier 2 buying better inheritance later) is not measured.
 
 ### Changes from v1.4
 

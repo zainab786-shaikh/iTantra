@@ -65,6 +65,7 @@ set(ITANTRA_CORE_SOURCES
         tier1/slots.cpp
         tier1/readback.cpp
         tier1/encode.cpp
+        select/select.cpp
 )
 
 # ---------------------------------------------------------------------------

@@ -36,12 +36,12 @@ Recorded when the format froze (implementation plan Phase 3). These pin values t
   - **Coverage:** minimum 1 symbol on both tiers; the escape boundary 30 / 31 / 32 with a hash on both tiers; the maximum 2078 symbols (Tier 2, no hash — the hashed random-byte vector tokenised to 2077); tier × hash × priority × negation for Tier 1; boosted Tier 2; literals in several scripts with byte fallback; every LangId 1 … 10.
   - **Tests:** `conformance.tier_vectors` (C-01 / C-02 host preconditions, C-03).
   - **`vectors.bin`:** unchanged — SHA-256 above.
-- **Open — Phase 9 decision, not resolved:** a clause longer than 2078 tokens (`kMaxSymbolCount`). Three requirements conflict for such a clause:
-  - §5: `ASM_TOO_LONG` — "caller must split"
-  - §7.5: "the tier layer must not split a clause further — one clause is one message"
-  - `tier-1-2-spec.md` §6.7: Tier 2 always succeeds
-
-  The Phase 7 implementation returns `TooLong` with no payload and splits nothing (tier spec implementation resolutions).
+- **Resolved in Phase 9 and approved after review (was open):** a clause longer than 2078 tokens (`kMaxSymbolCount`), where §5 ("caller must split"), §7.5 ("one clause is one message") and tier §6.7 conflicted. Details are in the tier spec's §8 implementation resolutions. No format change.
+  - **No splitting.** Nothing is split, and §7.5 holds.
+  - **Tier 1 safe.** If Tier 1 is safe it is sent.
+  - **Tier 1 not safe.** Selection returns `ClauseTooLong`: no payload, no context update, and no counter consumed. The sender pipeline must tell the operator.
+  - **Reading of §5.** "Caller must split" is read as the layer that forms clauses, whose rule is fixed.
+- §6.4 / §5 (**Phase 9**) — tier selection compares **complete native packets**: plaintext payload (metadata + coder bits + 2 flush bits + padding) + the 4-byte tag, never `kAeadOverheadBytes`. Tier 1 must be strictly smaller; an exact-size tie sends Tier 2 (approved). Tests: `conformance.c17_c19`. Sender-only; no format change.
 
 Recorded when encryption was implemented (implementation plan Phase 4). These pin the encryption items of §8 ("KDF definition and inputs · nonce derivation function · counter width and the seq → counter reconstruction rule") and the cipher suite and KDF version checked at HELLO (§8.3). Golden vectors are unchanged: they remain the pre-encryption payload (§6.10.1).
 

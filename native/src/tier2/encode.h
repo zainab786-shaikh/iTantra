@@ -41,8 +41,10 @@
 // first token's history is BOS and nothing from an earlier clause is kept.
 //
 // Totality (§6.7). tokenize() cannot fail and every token has p > 0, so the one
-// refusal is packet §5's ASM_TOO_LONG: more than kMaxSymbolCount (2078) tokens,
-// which the caller must split. A token covers at least one byte, so a clause of
+// refusal is packet §5's ASM_TOO_LONG: more than kMaxSymbolCount (2078) tokens.
+// The clause is never split (packet §7.5; approved Phase 9 policy, select/select.h):
+// tier selection sends Tier 1 if it is safe, otherwise returns ClauseTooLong with
+// no payload, no context update and no counter consumed. A token covers at least one byte, so a clause of
 // at most 2078 bytes always encodes.
 
 #include <cstddef>
@@ -61,7 +63,7 @@ namespace itantra {
 
 enum class Tier2Status : u8 {
     Ok,
-    TooLong,           // encode: more than kMaxSymbolCount tokens (ASM_TOO_LONG); caller must split
+    TooLong,           // encode: more than kMaxSymbolCount tokens (ASM_TOO_LONG); never split — see select/select.h
     InvalidArgument,   // tables not loaded, null text with a length, LangId above 15
     CoderFailure,      // a token with p == 0 — impossible with loaded tables (§6.7)
     Malformed,         // decode: metadata truncated, or tier 00 / 11
