@@ -28,7 +28,14 @@ Recorded when the format froze (implementation plan Phase 3). These pin values t
   - **Never appended.** They are never added to `vectors.bin`, which stays packet format version 1 byte for byte.
   - **Pinned tables.** Each vector pins the tables it was built from: tokenizer and table versions, and a digest. Vectors built from the synthetic fixture tables are a determinism check, not production data.
   - **Sequencing.** Freezing should wait until the 4-bit `language` mapping below is settled.
-- Still open: which language each 4-bit `language` value denotes (carried opaquely; language layer).
+- §3.2 `language` (**resolved in Phase 8**): `0` unassigned · `1 … 10` = hi, gu, mr, kn, ml, ta, te, or, bn, en · `11 … 15` reserved; append-only (language spec implementation resolutions, `native/src/lang/languages.h`). The packet layer still carries the 4-bit value without interpreting it.
+- §6.10.1 (**Phase 8**): the Tier 1 / Tier 2 golden vectors now exist as the separate artifact `native/test/golden/tier_vectors.bin`.
+  - **File:** format v1, 68 vectors (37 Tier 1, 31 Tier 2), 55,158 bytes, SHA-256 `7B72780EBD72E6CCBC44B11A95DBD34F2A40560FC1E7C8748031F8D5A286E7A8`. Generated once by `itantra-golden-generate-tiers`, which refuses to overwrite it.
+  - **Self-contained:** it embeds the six table files the vectors were built from (common concepts, intents, schema; Tier 2 subwords, n-gram, boost). These are the synthetic fixture tables, so the vectors are a determinism check, not production data.
+  - **Versions:** records packet format 1, coder 1, tokenizer 1, n-gram table 1, boost table 1 and Tier 1 table 1.
+  - **Coverage:** minimum 1 symbol on both tiers; the escape boundary 30 / 31 / 32 with a hash on both tiers; the maximum 2078 symbols (Tier 2, no hash — the hashed random-byte vector tokenised to 2077); tier × hash × priority × negation for Tier 1; boosted Tier 2; literals in several scripts with byte fallback; every LangId 1 … 10.
+  - **Tests:** `conformance.tier_vectors` (C-01 / C-02 host preconditions, C-03).
+  - **`vectors.bin`:** unchanged — SHA-256 above.
 - **Open — Phase 9 decision, not resolved:** a clause longer than 2078 tokens (`kMaxSymbolCount`). Three requirements conflict for such a clause:
   - §5: `ASM_TOO_LONG` — "caller must split"
   - §7.5: "the tier layer must not split a clause further — one clause is one message"

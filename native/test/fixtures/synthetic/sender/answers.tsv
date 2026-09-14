@@ -1,0 +1,4 @@
+# Adjacency answers — SENDER-ONLY (tier §5.2). Format in native/src/tier1/rulec/rulec.h.
+# Columns: query_intent	slot	answer_intent
+# While a query is pending, a bare value in `slot` becomes `answer_intent`.
+QUERY_CASUALTY_COUNT	QUANTITY	ANSWER_COUNT

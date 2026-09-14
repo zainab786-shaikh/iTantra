@@ -8,10 +8,10 @@ REPORT_FIRE_AT	LOCATION=north_gate	ta	வடக்கு வாசலில் �
 REPORT_FIRE_AT	LOCATION=north_gate	en	Fire at the north gate
 REQUEST_MEDICAL_AT	OBJECT=ambulance; LOCATION=hospital	hi	अस्पताल में एम्बुलेंस भेजो
 REQUEST_MEDICAL_AT	OBJECT=ambulance; LOCATION=hospital	ta	மருத்துவமனையில் ஆம்புலன்ஸ் அனுப்புங்க
-REQUEST_MEDICAL_AT	OBJECT=ambulance; LOCATION=hospital	en	Send an ambulance at the hospital
+REQUEST_MEDICAL_AT	OBJECT=ambulance; LOCATION=hospital	en	Send an ambulance to the hospital
 REQUEST_SUPPLY_AT	OBJECT=blanket; LOCATION=relief_camp	hi	राहत शिविर में कंबल भेजो
 REQUEST_SUPPLY_AT	OBJECT=blanket; LOCATION=relief_camp	ta	நிவாரண முகாமில் போர்வை அனுப்புங்க
-REQUEST_SUPPLY_AT	OBJECT=blanket; LOCATION=relief_camp	en	Send blankets at the relief camp
+REQUEST_SUPPLY_AT	OBJECT=blanket; LOCATION=relief_camp	en	Send blankets to the relief camp
 REPORT_CASUALTY_COUNT	QUANTITY#3	hi	3 घायल
 REPORT_CASUALTY_COUNT	QUANTITY#3	ta	3 பேர் காயம்
 REPORT_CASUALTY_COUNT	QUANTITY#3	en	3 injured

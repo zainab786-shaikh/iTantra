@@ -3,5 +3,7 @@
   "pack_version": 1,
   "script": "Latn",
   "tts_voice": "fixture-en",
-  "stt_confidence_threshold": 700
+  "stt_confidence_threshold": 700,
+  "readback_normal": 600,
+  "readback_critical": 800
 }

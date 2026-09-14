@@ -52,6 +52,55 @@
 
   The worst case is about 2078 bytes the vocabulary does not cover. The Phase 7 implementation returns `TooLong` with no payload and splits nothing. Phase 9 (tier selection) must decide the outcome.
 
+- §5 — **Tier 1, pinned in Phase 8** (`native/src/tier1/`). Tested by `unit.tier1`, `conformance.c07`, `rulec.*` and `conformance.tier_vectors`. Three kinds of item: **protocol (frozen)** — both phones, Tier 1 table version 1, pinned by `native/test/golden/tier_vectors.bin`; **sender-only** — the sender may change these without breaking compatibility (§3.4, context §13.2); **fixture-only / provisional** — values chosen for the synthetic fixture or pending measurement.
+
+  **Protocol (frozen)**
+  - **Frame (§5.5–5.7, §5.9).** An intent plus one mode per concept slot ACTOR … STATE: `Absent 0 · Inherit 1 · Ref 2 · Id 3 · Literal 4`. NEGATION is the packet's negation bit, never a slot; LAST_REF is never in a frame.
+  - **Symbol order (§5.9).** Intent (index among intents.bin IDs) → one mode per slot the intent *expects*, in SlotId order → for each Id slot in order, a concept index among that slot's concepts or ESCAPE followed by a number (bit-length class 1 … 16, then the bits below the leading 1) → for each Literal slot in order, a token count 1 … 255 then that many Tier 2 subword tokens. A value's kind is not transmitted: it is a Concept iff concepts.bin has that ID in that slot, otherwise a Number; a Number that collides with such an ID is refused by the sender and rejected by the decoder.
+  - **Static models, table version 1 (§5.9, T4a).** No context boost anywhere in Tier 1. Intent uniform; mode `3·4·1·4·1` with Absent = 0 on a required slot and Inherit = Ref = 0 on TIME; concepts uniform plus ESCAPE 1; number class `17 − c`; bits 1·1; literal length uniform over 1 … 255. Literal tokens use the Tier 2 static n-gram table **unboosted**, with history restarting at BOS at every literal — no Tier 2 boost, history or metadata. The frequencies are provisional (below); changing them is a new Tier 1 table version.
+  - **TIME (§5.6, #9).** Inherit and Ref on TIME have probability 0, are refused by the frame encoder and by `commit()`, and cannot be decoded.
+  - **hash_present.** Set exactly when the frame has an Inherit or Ref slot, with the wire hash of the sender's pre-message context (context §17.1). The decoder rejects a payload where the two disagree.
+  - **Ref.** Decodes, commits (`SlotOp::Ref`, not a write) and resolves exactly like Inherit: to `context.current` (receiver §4 "previous message's value"). Provisional as a meaning — see Open.
+  - **Negation.** The wire negation bit is the clause's negation flag (§5.1). A negated clause may use Tier 1 **only** through a rule with a NEG_SET condition, so the negated meaning lives in the intent (§5.4). A negation copy disagreement is rejected, never decoded (receiver §3④, C-30).
+  - **Priority.** `CRITICAL = intents.bin is_alert OR manual override`; never lowered (language §11.2, packet §11). CRITICAL uses the pack's `readback_critical` bar.
+  - **Receiver.** The static model decodes whatever the context state (§5.9). On a hash mismatch, Id and Literal slots resolve and Inherit / Ref slots are unresolved; rendering refuses while any slot is unresolved (receiver §6.1, §7.1). Tier 1 renders with the listener's own templates (language §10.1).
+  - **LangId (packet §3.2).** `0` unassigned · `1 … 10` = hi, gu, mr, kn, ml, ta, te, or, bn, en · `11 … 15` reserved; append-only (`native/src/lang/languages.h`).
+
+  **Sender-only**
+  - **Head selection (§5.3).** Reconciles "ties break by slot enum order" with "two concepts of the top class → INTENT_NONE": for ACTION / EVENT / STATE exactly one distinct concept of the top class, else INTENT_NONE; for ENTITY / MODIFIER the lowest SlotId wins, and two distinct concepts in that slot are INTENT_NONE. The same concept twice is one concept. A head whose surface form is a homograph is INTENT_NONE.
+  - **Rules (§5.4, §12.1).** `sender/rules.bin` (container kind 12). Conditions read the clause's own extracted slots, never context; a condition reading an Ambiguous slot stops with INTENT_NONE. The operand is u16 as in §5.4's struct, so rule categories use bits 0 … 15. The rule compiler (`native/src/tier1/rulec/`, linked only into host tools) fails the build on each §12.1 item 1–4 violation, and also when a `head_implied = 0` intent does not expect its head's slot, a `head_implied = 1` intent requires it, or an answer intent does not expect its slot. Item 5 is the coverage report written by `conformance.c07`.
+  - **Slot resolution (§5.5–5.7).** Implied head → Absent; a non-implied head → Id, never inherited. A value said: TIME → Id; equal to `context.current` and fresh → Inherit; otherwise Id. A required slot not said: when it is the only one and the clause's unmatched words form one contiguous run → Literal of their exact original bytes (what was said wins over memory); else fresh non-TIME context → Inherit; else INTENT_NONE. The Phase 8 sender never emits Ref and never writes LAST_REF. More than 255 literal tokens → INTENT_NONE.
+  - **Staleness (context §13).** Fresh = `age <= max_inherit_age`, a sender setting; `allow_inheritance = false` gives a fully explicit message (context §16.1, §18.3).
+  - **Read-back (§5.8, T9).** Render with the sender's templates, inherited values resolved from the sender's context; normalise both sides with language §6.1 steps 1–3, 5, 6; Levenshtein over U+0020 tokens; similarity `floor((L − d) · 1000 / L)`, 1000 for two empty sequences. Tier 1 is permitted only if **all** of these hold (fixed before commit, after an independent review showed word-level similarity alone accepted `"Never send water"` as `"Send water"` and a transmitted-but-unrendered quantity):
+    - **R2 — rendered slots:** every non-Absent slot of the frame is a placeholder of the sender's template for the intent (`ReadbackUnrenderedSlot`). The pack compiler requires every language's template for an intent to reference only required slots, and the same slots in every language (`rulec::check_templates`, run by `itantra-packc`), so a verified value is rendered in every listener's language.
+    - **R1 — coverage:** every spoken token appears among the rendered tokens, counted as a multiset (`ReadbackUnexplainedWord`). Tokens of the unmatched words the literal was taken from are exempt. An unlisted negation word, a dropped quantity or any other unexplained spoken word refuses Tier 1, whatever the similarity.
+    - **Bar:** `similarity >= bar` remains as an additional guard (`ReadbackBelowBar`).
+
+    Before sending, the sender decodes its own payload and requires the same frame, negation and priority. These are sender-only checks: no wire, frame, model or golden-vector change.
+  - **Adjacency (§5.2).** Two states, as drawn. `on_query()` marks a QUERY this phone must answer; any message sent, or a caller-supplied tick reaching the deadline, returns to NEUTRAL (the FSM reads no clock). A bare value is a clause with no concept, no negation and exactly one slot value; `sender/rules.bin`'s answer table maps (pending query, slot) to the answer intent.
+
+  **Fixture-only / provisional**
+  - The Tier 1 static-model frequencies above (table version 1) — to be replaced by trained tables under a new version (§13.2).
+  - The default staleness limit, 254 messages (§13.2's starting heuristic, with a saturated age counting as stale).
+  - The literal rule "all unmatched words, only if contiguous": function words next to a name are included (see Open).
+  - Fixture data: 7 intents added (CANCEL_REQUEST, REPORT_FLOOD_AT, REPORT_COLLAPSE_AT, REQUEST_STOP, REQUEST_EVACUATE_AT, QUERY_CASUALTY_COUNT, REQUEST_GENERIC), `head_implied = 1` on the ACTION-headed intents and on REPORT_CASUALTY_COUNT (its templates say "injured" as text, so under R2 the STATE head must not be transmitted), concept `query_count`, `sender/rules.tsv` and `answers.tsv`, negation words, the read-back bars (600/800; ta 550/750) and templates.
+
+  **Recorded spec inconsistencies**
+  - §5.4's example gives REQUEST_MEDICAL_AT and REQUEST_SUPPLY_AT the same `rule_priority 100` in one bucket, which §12.1 item 1 forbids. The build check wins; the fixture uses 100 and 90, and `rulec.rejects.duplicate-priority` compiles the example as written and rejects it.
+  - §5.2 says "three states" but draws two; two are implemented.
+
+  **Open**
+  - **Literal span and mixed-language output — open Phase 9 decision.** A literal is all the clause's unmatched words, provided they are contiguous. Words around a name travel inside it, in the sender's language: "Tell Ravi to move" reaches a Hindi listener as "Tell Ravi to हटो", and "Tell Ravi never to move" as "Tell Ravi never to हटो". R1 does not catch this, because nothing is dropped. What stays fixed:
+    - No script or language field is added to the wire; a literal is raw bytes (the frame above), and `tier_vectors.bin` is unchanged.
+    - The receiver already knows the sender's language from HELLO (context §18.1). Marking literal spans for TTS is output-layer work: today `render_frame` returns one flat string.
+    - Phase 9, which knows both languages, decides the cross-language policy (for example, refusing multi-word literals there). Mixed output itself is accepted (language §10.5); the long-term mitigation is provisioning (§15.2).
+  - **Read-back and alternative surface forms.** Templates render one form, so number words ("three" vs "3"), code-mixed loanwords ("north gate पर" vs "उत्तर द्वार पर") and STT variants leave a spoken word unexplained. Under R1 they are refused as `ReadbackUnexplainedWord`: safe, but it lowers the Tier 1 hit rate (see the fixture coverage report). Whether a concept-level comparison should be added is not decided (§5.8 specifies word level).
+  - **Ref.** The Phase 8 sender never emits Ref. The golden vectors pin Ref's encoding, not its meaning, so **any future change to what Ref means requires a Tier 1 table / protocol version bump**. Its final semantics are otherwise not resolved in Phase 8 (receiver pipeline, Phase 10). Also open: how LAST_REF is chosen, and where pronoun words live — no pack data is specified.
+  - **Which messages are fully explicit** (the periodic-explicit N, context §16.1) and the reset flag (context §13.4) — Phase 12.
+  - **The STT confidence scale** is still open (language spec). The comparison is `confidence < threshold` → no Tier 1.
+  - **Receiver / sender separation** is enforced at include level (a test scans the shared files). A receiver-only library is Phase 10–11.
+  - **More than 2078 symbols** (packet §5 vs §7.5 vs §6.7) — the open Phase 9 decision above. Tier 1 reports it as `TooLong` (Tier 1 not available).
+
 ### Changes from v1.4
 
 - §5.4 — the rule table's numeric ordering field is renamed **`rule_priority`**, to keep it distinct from message priority.

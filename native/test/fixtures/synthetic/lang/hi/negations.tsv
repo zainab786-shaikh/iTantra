@@ -1,0 +1,4 @@
+# Negation words (Phase 8; format in native/tools/packc.cpp). One surface form per line,
+# stored normalised like lexicon surfaces. A clause containing one is negated (tier §5.1).
+मत
+नहीं

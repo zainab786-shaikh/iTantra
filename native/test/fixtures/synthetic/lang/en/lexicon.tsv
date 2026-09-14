@@ -42,3 +42,4 @@ trapped	trapped	base	native
 critical	critical	base	native
 minor	minor	base	native
 urgent	urgent	base	native
+how many	query_count	base	native

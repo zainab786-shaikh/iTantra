@@ -248,9 +248,15 @@ itantra_host_test(C-32 c32_test test/conformance/c32.cpp)
 # Phase 6 — Language Layer
 # ---------------------------------------------------------------------------
 # Pack compiler (a host tool, not part of the Android library).
-add_executable(itantra-packc tools/packc.cpp)
+add_executable(itantra-packc tools/packc.cpp "${ITANTRA_CORE_DIR}/tier1/rulec/rulec.cpp")
 target_link_libraries(itantra-packc PRIVATE itantra-core)
 target_compile_options(itantra-packc PRIVATE ${ITANTRA_HOST_WARNINGS})
+
+# Phase 8: the build-time rule compiler (tier §12.1). Not in the runtime
+# library — linked only into host tools and tests.
+add_executable(itantra-rulec tools/rulec.cpp "${ITANTRA_CORE_DIR}/tier1/rulec/rulec.cpp")
+target_link_libraries(itantra-rulec PRIVATE itantra-core)
+target_compile_options(itantra-rulec PRIVATE ${ITANTRA_HOST_WARNINGS})
 
 # Synthetic fixture packs (test artifact, language spec "synthetic fixtures
 # first"): compiled from source into the build tree on every build that
@@ -261,7 +267,8 @@ set(ITANTRA_FIXTURE_LANGUAGES hi ta en)
 file(GLOB_RECURSE ITANTRA_FIXTURE_FILES CONFIGURE_DEPENDS
         "${ITANTRA_FIXTURE_SRC}/common/*"
         "${ITANTRA_FIXTURE_SRC}/lang/*"
-        "${ITANTRA_FIXTURE_SRC}/tier2/*")
+        "${ITANTRA_FIXTURE_SRC}/tier2/*"
+        "${ITANTRA_FIXTURE_SRC}/sender/*")
 add_custom_command(
         OUTPUT "${ITANTRA_FIXTURE_OUT}/packc.stamp"
         COMMAND itantra-packc "${ITANTRA_FIXTURE_SRC}" "${ITANTRA_FIXTURE_OUT}" ${ITANTRA_FIXTURE_LANGUAGES}
@@ -303,3 +310,57 @@ itantra_fixture_test(unit.tier2 tier2_test test/unit/tier2_test.cpp
 # C-05, C-06. No threshold: every case must round-trip exactly.
 itantra_fixture_test(conformance.c05_c06 c05_c06_test test/conformance/c05_c06.cpp
         --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")
+
+# ---------------------------------------------------------------------------
+# Phase 8 — Tier 1
+# ---------------------------------------------------------------------------
+itantra_fixture_test(unit.tier1 tier1_test test/unit/tier1_test.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}"
+        --rulec-fixtures "${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/rulec"
+        --shared-sources "${ITANTRA_CORE_DIR}/tier1/frame.h" "${ITANTRA_CORE_DIR}/tier1/frame.cpp"
+                         "${ITANTRA_CORE_DIR}/tier1/decode.h" "${ITANTRA_CORE_DIR}/tier1/decode.cpp")
+target_sources(tier1_test PRIVATE "${ITANTRA_CORE_DIR}/tier1/rulec/rulec.cpp")
+
+# C-07, plus the C-08 / C-14 / C-25 / C-26 host preconditions and the tier §12.1
+# item 5 coverage report.
+itantra_fixture_test(conformance.c07 c07_test test/conformance/c07.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}"
+        --report "${CMAKE_BINARY_DIR}/reports/tier1_coverage.tsv")
+
+# Exit criterion: "build-time rule validation fails the build on a malformed
+# table". Each malformed table must be refused by the compiler with the §12.1
+# check it breaks; the fixture table must compile.
+function(itantra_rulec_rejects case rules message)
+    add_test(NAME rulec.rejects.${case}
+             COMMAND itantra-rulec --common "${ITANTRA_FIXTURE_SRC}/common"
+                     --rules "${CMAKE_CURRENT_SOURCE_DIR}/test/fixtures/rulec/${rules}"
+                     --answers "${ITANTRA_FIXTURE_SRC}/sender/answers.tsv")
+    set_tests_properties(rulec.rejects.${case} PROPERTIES
+            PASS_REGULAR_EXPRESSION "${message}"
+            FAIL_REGULAR_EXPRESSION "rulec: OK")
+endfunction()
+itantra_rulec_rejects(duplicate-priority dup_priority.tsv "duplicate rule_priority 100 in bucket send")
+itantra_rulec_rejects(unreachable-intent unreachable_intent.tsv "intent REQUEST_STOP is not reachable")
+itantra_rulec_rejects(uncovered-concept uncovered_concept.tsv "STATE concept trapped has no rule")
+itantra_rulec_rejects(undeclared-slot undeclared_slot.tsv "condition on OBJECT, which intent REQUEST_EVACUATE_AT does not declare")
+# Tier 1 / Tier 2 golden vectors: a SEPARATE frozen artifact
+# (test/golden/tier_vectors.bin), never an append to test/golden/vectors.bin.
+# The generator is built so it keeps compiling, but NEVER run by the build or
+# by CTest; it refuses to overwrite an existing file.
+add_executable(itantra-golden-generate-tiers test/golden/generate_tiers.cpp)
+target_link_libraries(itantra-golden-generate-tiers PRIVATE itantra-core)
+target_include_directories(itantra-golden-generate-tiers PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+target_compile_options(itantra-golden-generate-tiers PRIVATE ${ITANTRA_HOST_WARNINGS})
+add_dependencies(itantra-golden-generate-tiers itantra-fixtures)
+
+add_executable(tier_vectors_test test/conformance/tier_vectors.cpp)
+target_link_libraries(tier_vectors_test PRIVATE itantra-core)
+target_include_directories(tier_vectors_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+target_compile_options(tier_vectors_test PRIVATE ${ITANTRA_HOST_WARNINGS})
+add_test(NAME conformance.tier_vectors
+         COMMAND tier_vectors_test --vectors "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/tier_vectors.bin")
+
+add_test(NAME rulec.accepts.fixture
+         COMMAND itantra-rulec --common "${ITANTRA_FIXTURE_SRC}/common"
+                 --rules "${ITANTRA_FIXTURE_SRC}/sender/rules.tsv" --answers "${ITANTRA_FIXTURE_SRC}/sender/answers.tsv")
+set_tests_properties(rulec.accepts.fixture PROPERTIES PASS_REGULAR_EXPRESSION "rulec: OK  16 rules, 1 answers")

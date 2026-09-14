@@ -1,0 +1,62 @@
+# Tier 1 test corpus (Phase 8). Columns: id	lang	confidence	critical	context	awaiting	text	expect
+#
+# confidence  STT confidence, compared with the pack's stt_confidence_threshold
+# critical    1 = the operator's "Send as Critical" override
+# context     "-", or the sender's pre-message context as SLOT=concept / SLOT#n items separated by ";"
+#             (committed as one explicit write before the message)
+# awaiting    "-", or the QUERY intent the adjacency check is awaiting an answer to
+# text        one clause
+# expect      tier1 INTENT NORMAL|CRITICAL   — Tier 1 is safe, with that intent and priority
+#             tier2 OUTCOME                   — Tier 1 refused for that reason (tier1/encode.h)
+#
+# Both kinds are required (contract §2.1): the gates are half the design.
+e01	en	900	0	-	-	Fire at the north gate	tier1 REPORT_FIRE_AT CRITICAL
+e02	en	900	0	-	-	Send an ambulance to the hospital	tier1 REQUEST_MEDICAL_AT CRITICAL
+e03	en	900	0	-	-	Send blankets to the relief camp	tier1 REQUEST_SUPPLY_AT NORMAL
+e04	en	900	0	-	-	Police move	tier1 REQUEST_MOVE NORMAL
+e05	en	900	0	-	-	Do not send water	tier1 CANCEL_REQUEST NORMAL
+e06	en	900	0	-	-	Police do not move	tier2 NegationWithoutRule
+e07	en	300	0	-	-	Fire at the north gate	tier2 LowConfidence
+e08	en	900	0	-	-	Fire flood at the bridge	tier2 TwoTopClass
+e09	en	900	0	-	-	okay	tier2 NoHead
+e10	en	900	0	-	-	Tell Ravi to move	tier1 REQUEST_MOVE NORMAL
+e11	en	900	0	LOCATION=hospital	-	Send an ambulance to the hospital	tier1 REQUEST_MEDICAL_AT CRITICAL
+e12	en	900	0	-	-	3 injured	tier1 REPORT_CASUALTY_COUNT CRITICAL
+e13	en	900	0	-	-	injured	tier1 REPORT_STATE NORMAL
+e14	en	900	0	-	QUERY_CASUALTY_COUNT	3	tier1 ANSWER_COUNT NORMAL
+e15	en	900	0	-	-	3	tier2 NoHead
+e16	en	900	0	-	-	Send food market	tier1 REQUEST_SUPPLY_AT NORMAL
+e17	en	900	1	-	-	Send food market	tier2 ReadbackBelowBar
+e18	en	900	0	-	-	Evacuate school	tier1 REQUEST_EVACUATE_AT CRITICAL
+e19	en	900	0	-	-	Send relief	tier2 AmbiguousRuleSlot
+e20	en	900	0	-	-	How many injured	tier1 QUERY_CASUALTY_COUNT NORMAL
+e21	en	900	0	-	-	Army stop	tier1 REQUEST_STOP NORMAL
+e22	en	900	0	OBJECT=water	-	Send water	tier1 REQUEST_GENERIC NORMAL
+e23	en	900	0	-	-	Do not send no water	tier2 NegationAmbiguous
+e24	en	900	0	-	QUERY_CASUALTY_COUNT	three	tier2 ReadbackUnexplainedWord
+e25	en	900	1	-	-	Police move	tier1 REQUEST_MOVE CRITICAL
+e26	en	900	0	-	-	Send water to the hospital	tier1 REQUEST_SUPPLY_AT NORMAL
+e27	en	900	0	-	-	Send medicine to the hospital	tier1 REQUEST_MEDICAL_AT CRITICAL
+e28	en	900	0	-	-	Never send water	tier2 ReadbackUnexplainedWord
+e29	en	900	0	-	-	Send 5 blankets to the relief camp	tier2 ReadbackUnrenderedSlot
+e30	en	900	0	-	-	Police move 5	tier2 ReadbackUnexplainedWord
+e31	en	900	0	-	-	Police police move	tier2 ReadbackUnexplainedWord
+h01	hi	900	0	-	-	उत्तर द्वार पर आग	tier1 REPORT_FIRE_AT CRITICAL
+h02	hi	900	0	-	-	अस्पताल में एम्बुलेंस भेजो	tier1 REQUEST_MEDICAL_AT CRITICAL
+h03	hi	900	0	-	-	पानी मत भेजो	tier1 CANCEL_REQUEST NORMAL
+h04	hi	500	0	-	-	उत्तर द्वार पर आग	tier2 LowConfidence
+h05	hi	900	0	-	-	रमेश को हटो	tier1 REQUEST_MOVE NORMAL
+h06	hi	900	0	-	-	३ घायल	tier1 REPORT_CASUALTY_COUNT CRITICAL
+h07	hi	900	0	-	-	उत्तर द्वार खाली करो	tier1 REQUEST_EVACUATE_AT CRITICAL
+h08	hi	900	0	-	-	यह ठीक है	tier2 NoHead
+h09	hi	900	0	LOCATION=hospital	-	अस्पताल में एम्बुलेंस भेजो	tier1 REQUEST_MEDICAL_AT CRITICAL
+h10	hi	900	0	-	-	पुलिस मत हटो	tier2 NegationWithoutRule
+h11	hi	900	0	-	-	पानी न भेजो	tier2 ReadbackUnexplainedWord
+h12	hi	900	0	-	-	राहत शिविर में 5 कंबल भेजो	tier2 ReadbackUnrenderedSlot
+t01	ta	900	0	-	-	வடக்கு வாசலில் தீ	tier1 REPORT_FIRE_AT CRITICAL
+t02	ta	900	0	-	-	மருத்துவமனையில் ஆம்புலன்ஸ் அனுப்புங்க	tier1 REQUEST_MEDICAL_AT CRITICAL
+t03	ta	900	0	-	-	தண்ணீர் அனுப்ப வேண்டாம்	tier1 CANCEL_REQUEST NORMAL
+t04	ta	500	0	-	-	வடக்கு வாசலில் தீ	tier2 LowConfidence
+t05	ta	900	0	-	-	போலீஸ் நகர்	tier1 REQUEST_MOVE NORMAL
+t06	ta	900	0	-	-	சரி	tier2 NoHead
+t07	ta	900	0	-	QUERY_CASUALTY_COUNT	௩	tier1 ANSWER_COUNT NORMAL

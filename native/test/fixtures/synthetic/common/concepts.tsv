@@ -33,3 +33,4 @@
 70	critical	SEVERITY	MODIFIER	-
 71	minor	SEVERITY	MODIFIER	-
 72	urgent	SEVERITY	MODIFIER	-
+80	query_count	-	ACTION	-

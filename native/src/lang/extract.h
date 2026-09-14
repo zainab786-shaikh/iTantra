@@ -3,17 +3,22 @@
 // Deterministic extraction — language-layer-spec §8; context §6, §8.
 //
 //   normalise (§6.1 1–3) → segment clauses (4) → per clause: normalise (5–6)
-//   → match lexicon, number words and digit runs in ONE longest-then-leftmost
-//     selection (§8.1, lang/lexicon.h)
+//   → match lexicon, number words, digit runs and negation words in ONE
+//     longest-then-leftmost selection (§8.1, lang/lexicon.h)
 //   → detect typed values with the pack's scanners (patterns.bin)
 //   → assign slots from each concept's slot type (§7.1, context §8.1)
 //
 // Output is a CANDIDATE (context §6, §10), never a commit.
 //
-// Deliberately NOT here (later phases, sender-only):
-//   intent identification — head selection and the rule table (tier §5.3–5.4,
-//   Phase 8); literal choice for a slot (tier §5.6–5.7, Phase 8); negation
-//   (no negation lexicon is specified — spec gap); tier selection (Phase 9).
+// Deliberately NOT here (sender-only, tier1/): intent identification — head
+// selection and the rule table (tier §5.3–5.4); literal choice for a slot (tier
+// §5.6–5.7); tier selection (Phase 9).
+//
+// Negation (Phase 8, tier §5.1 "negation flag per clause"): words from the
+// pack's negations.bin are matched like lexicon entries (same selection, lowest
+// precedence on an exact tie). A negation word is neither a concept nor
+// unmatched text; its original bytes are recorded in `negations`. Negation is
+// never context (context §2.3) — nothing here writes it anywhere else.
 //
 // Ambiguity (§8.2, context §8.2, L5): "Resolved using the detected intent,
 // since each intent declares which slots it expects. If ambiguity remains, the
@@ -82,12 +87,15 @@ struct ClauseExtraction {
     std::vector<ConceptMatch> concepts;     // text order
     std::vector<TypedValue>   values;
     std::vector<TextToken>    unmatched;
+    std::vector<SourceSpan>   negations;    // negation words, original bytes, text order
     SlotCandidate             slots[kConceptSlotCount];
     u8                        ambiguous_slots = 0u;   // bit per SlotId
     bool                      unrepresentable_value = false;   // a scanner matched out of range
 
     // §8.3 "Nothing matches at all → Tier 2".
     bool nothing_matched() const noexcept { return concepts.empty() && values.empty(); }
+
+    bool negated() const noexcept { return !negations.empty(); }
 };
 
 struct UtteranceExtraction {

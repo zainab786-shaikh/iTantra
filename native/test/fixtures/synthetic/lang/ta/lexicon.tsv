@@ -50,3 +50,7 @@ doctor	doctor	base	loanword
 சிறிய	minor	base	native
 அவசரம்	urgent	base	native
 urgent	urgent	base	loanword
+எத்தனை	query_count	base	native
+அனுப்ப	send	inflected	native
+காலி செய்யுங்க	evacuate	base	native
+இடிந்தது	collapse	base	native

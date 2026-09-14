@@ -34,3 +34,11 @@ trapped	plain	trapped
 critical	plain	critical
 minor	plain	minor
 urgent	plain	urgent
+north_gate	destination	to the north gate
+south_gate	destination	to the south gate
+hospital	destination	to the hospital
+bridge	destination	to the bridge
+market	destination	to the market
+river	destination	to the river
+school	destination	to the school
+relief_camp	destination	to the relief camp

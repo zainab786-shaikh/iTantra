@@ -29,7 +29,7 @@
 //   Language       message.language is the sender's LangId, written unchanged:
 //                  Tier 2 stays in the sender's language and is never translated
 //                  (tier §1.1, language §10.2). Which LangId value names which
-//                  language is NOT decided here (packet spec open item).
+//                  language is the frozen mapping in lang/languages.h (Phase 8).
 //
 //   Boost          message.boost_context non-null: boosted — the boost is built
 //                  from that context, hash_present = 1 and context_hash =

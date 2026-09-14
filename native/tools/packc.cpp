@@ -66,6 +66,8 @@
 #include "lang/normalize.h"
 #include "lang/pack.h"
 #include "lang/utf8.h"
+#include "tier1/rulec/rulec.h"
+#include "tier1/rules.h"
 #include "tier2/tables.h"
 
 using namespace itantra;
@@ -352,6 +354,19 @@ void compile_language(const std::string& src, const std::string& out, const std:
         templates.push_back(TemplateSource{it->second, unicode::nfc(r.cols[1])});
     }
 
+    // negation words (Phase 8): stored normalised, like lexicon surfaces
+    AutomatonBuilder negations;
+    for (const Row& r : read_tsv(in_dir + "/negations.tsv", 1u)) {
+        const std::string s = surface(r.cols[0], rules, r.where);
+        if (lexicon.pattern_count() != 0u) {
+            // A negation word that is also a lexicon surface would be silently
+            // shadowed by the concept (concepts win exact ties).
+            AutomatonBuilder probe = lexicon;
+            if (probe.add(s) < lexicon.pattern_count()) die(r.where + ": negation word is also a lexicon surface");
+        }
+        negations.add(s);
+    }
+
     write_bytes(out_dir + "/meta.json", read_bytes(in_dir + "/meta.json"));
     write_bytes(out_dir + "/normalize.json", normalize_json);
     write_bytes(out_dir + "/lexicon.bin", serialize_lexicon(lexicon, lexicon_entries));
@@ -359,6 +374,7 @@ void compile_language(const std::string& src, const std::string& out, const std:
     write_bytes(out_dir + "/patterns.bin", serialize_patterns(patterns));
     write_bytes(out_dir + "/forms.bin", serialize_forms(forms));
     write_bytes(out_dir + "/templates.bin", serialize_templates(templates));
+    write_bytes(out_dir + "/negations.bin", serialize_negations(negations));
 }
 
 struct LexiconSurface {
@@ -492,6 +508,7 @@ int main(int argc, char** argv) {
         die("compiled common data does not load: " + error);
     }
     std::vector<std::string> languages;
+    std::vector<LanguagePack> loaded;
     for (int i = 3; i < argc; ++i) {
         const std::string code = argv[i];
         languages.push_back(code);
@@ -505,6 +522,16 @@ int main(int argc, char** argv) {
         if (pack.language() != code) die("pack directory '" + code + "' declares language '" + pack.language() + "'");
         std::printf("packc: %s  %u lexicon surfaces, %u number words, %zu patterns\n", code.c_str(),
                     pack.lexicon().pattern_count(), pack.numbers().pattern_count(), pack.patterns().size());
+        loaded.push_back(std::move(pack));
+    }
+
+    // Read-back safety R2 (Phase 8): every language's template for an intent
+    // renders the same required slots.
+    {
+        std::vector<std::pair<std::string, const LanguagePack*>> template_packs;
+        for (std::size_t k = 0u; k < loaded.size(); ++k) template_packs.emplace_back(languages[k], &loaded[k]);
+        if (!rulec::check_templates(common, template_packs, error)) die(error);
+        std::printf("packc: templates render the same required slots in all %zu languages\n", loaded.size());
     }
     std::printf("packc: common  %zu concepts, %zu intents, schema %u\n", common.concepts().size(),
                 common.intents().size(), common.schema_version());
@@ -520,6 +547,23 @@ int main(int argc, char** argv) {
         std::printf("packc: tier2  %u tokens (%u subwords), %u n-gram rows, %u boost entries, boost magnitude %u\n",
                     tables.vocabulary().size(), tables.vocabulary().size() - kByteTokenCount,
                     tables.ngram().row_count(), tables.boost().entry_count(), tables.boost().magnitude());
+    }
+
+    // Sender-only Tier 1 rule table (Phase 8): sender/rules.tsv + sender/answers.tsv
+    // → <out>/sender/rules.bin, through the rule compiler (tier §12.1).
+    if (std::filesystem::is_directory(src + "/sender")) {
+        const rulec::CompileResult compiled =
+            rulec::compile(src + "/common", src + "/sender/rules.tsv", src + "/sender/answers.tsv");
+        if (!compiled.ok) die(compiled.error);
+        std::filesystem::create_directories(out + "/sender");
+        write_bytes(out + "/sender/rules.bin", compiled.rules_bin);
+        PackFiles rule_files;
+        RuleTable rules;
+        if (!read_pack_directory(out + "/sender", RuleTable::file_names(), rule_files, error) ||
+            !rules.load(rule_files, common, error)) {
+            die("compiled rule table does not load: " + error);
+        }
+        std::printf("packc: sender %u rules, %u answers\n", compiled.rule_count, compiled.answer_count);
     }
     return 0;
 }

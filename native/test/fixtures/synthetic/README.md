@@ -26,10 +26,14 @@ The vocabulary is illustrative. It has **not** had the native-speaker review tha
 
 ```
 common/        shared data, compiled to concepts.bin, intents.bin, schema_version
-lang/<code>/   per language, compiled to meta.json, normalize.json and the five .bin files
-corpus/        test utterances and expected results (read by the conformance tests, never compiled)
+lang/<code>/   per language, compiled to meta.json (with read-back bars), normalize.json and six .bin files
+               (negations.bin added in Phase 8)
+corpus/        test utterances and expected results (read by the conformance tests, never compiled);
+               tier1.tsv is the Tier 1 corpus: expected tier, intent and priority, gate reasons (Phase 8)
 tier2/         Tier 2 vocabulary pieces, training texts and boost magnitude (Phase 7),
                compiled to tier2/subwords.bin, ngram.bin, boost.bin
+sender/        SENDER-ONLY Tier 1 rule table and adjacency answers (Phase 8), compiled by the rule
+               compiler to sender/rules.bin; a malformed table fails the build
 ```
 
 The source formats are documented in `native/tools/packc.cpp`. The build compiles these sources into `<build>/fixtures/synthetic/` with `itantra-packc`.

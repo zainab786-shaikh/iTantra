@@ -49,3 +49,6 @@ doctor	doctor	base	loanword
 मामूली	minor	base	native
 जल्दी	urgent	base	native
 urgent	urgent	base	loanword
+कितने	query_count	base	native
+खाली करो	evacuate	base	native
+ढह गया	collapse	base	native

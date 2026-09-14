@@ -11,6 +11,7 @@
 
 #include "context/context.h"
 #include "lang/extract.h"
+#include "lang/languages.h"
 #include "lang_fixture.h"
 #include "packet/metadata.h"
 #include "tier2/tables.h"
@@ -54,12 +55,12 @@ struct Fixture {
     }
 };
 
-// Test-only LangIds for the three fixture languages. Which 4-bit value names
-// which language is an open wire-contract item; these values assert nothing.
+// The LangId of a fixture language — the frozen wire mapping (lang/languages.h,
+// resolved in Phase 8).
 inline itantra::LangId test_language_id(const std::string& code) {
-    if (code == "hi") return 1u;
-    if (code == "ta") return 2u;
-    return 3u;
+    itantra::u8 id = itantra::kLangIdUnassigned;
+    itantra::lang_id_of(code, id);
+    return id;
 }
 
 struct XorShift32 {

@@ -336,8 +336,8 @@ const IntentInfo* CommonPack::intent(u16 id) const noexcept {
 // ---------------------------------------------------------------------------
 
 const std::vector<std::string>& LanguagePack::file_names() {
-    static const std::vector<std::string> names = {"meta.json",     "normalize.json", "lexicon.bin", "forms.bin",
-                                                   "templates.bin", "numbers.bin",    "patterns.bin"};
+    static const std::vector<std::string> names = {"meta.json",     "normalize.json", "lexicon.bin",  "forms.bin",
+                                                   "templates.bin", "numbers.bin",    "patterns.bin", "negations.bin"};
     return names;
 }
 
@@ -353,10 +353,11 @@ bool LanguagePack::load(PackFiles files, const CommonPack& common, std::string& 
     const std::vector<u8>* templates = nullptr;
     const std::vector<u8>* numbers = nullptr;
     const std::vector<u8>* patterns = nullptr;
+    const std::vector<u8>* negations = nullptr;
     if (!require_file(f, "meta.json", meta, error) || !require_file(f, "normalize.json", normalize, error) ||
         !require_file(f, "lexicon.bin", lexicon, error) || !require_file(f, "forms.bin", forms, error) ||
         !require_file(f, "templates.bin", templates, error) || !require_file(f, "numbers.bin", numbers, error) ||
-        !require_file(f, "patterns.bin", patterns, error)) {
+        !require_file(f, "patterns.bin", patterns, error) || !require_file(f, "negations.bin", negations, error)) {
         return false;
     }
 
@@ -366,7 +367,8 @@ bool LanguagePack::load(PackFiles files, const CommonPack& common, std::string& 
         std::string why;
         if (!parse_json(meta->data(), meta->size(), root, why)) return fail(error, "meta.json", why.c_str());
         if (root.kind != JsonValue::Kind::Object) return fail(error, "meta.json", "top level must be an object");
-        static const char* const kKeys[] = {"language", "pack_version", "script", "tts_voice", "stt_confidence_threshold"};
+        static const char* const kKeys[] = {"language",  "pack_version", "script", "tts_voice", "stt_confidence_threshold",
+                                            "readback_normal", "readback_critical"};
         for (const std::string& key : root.keys) {
             bool known = false;
             for (const char* k : kKeys) known = known || key == k;
@@ -394,6 +396,21 @@ bool LanguagePack::load(PackFiles files, const CommonPack& common, std::string& 
             threshold->integer > 65535) {
             return fail(error, "meta.json", "stt_confidence_threshold must be an integer 0 ... 65535");
         }
+        const JsonValue* normal = root.member("readback_normal");
+        const JsonValue* critical = root.member("readback_critical");
+        if (normal == nullptr || normal->kind != JsonValue::Kind::Integer || normal->integer < 0 ||
+            normal->integer > kReadbackScale) {
+            return fail(error, "meta.json", "readback_normal must be an integer 0 ... 1000 (per-mille)");
+        }
+        if (critical == nullptr || critical->kind != JsonValue::Kind::Integer || critical->integer < 0 ||
+            critical->integer > kReadbackScale) {
+            return fail(error, "meta.json", "readback_critical must be an integer 0 ... 1000 (per-mille)");
+        }
+        if (critical->integer <= normal->integer) {
+            return fail(error, "meta.json", "readback_critical must be above readback_normal (tier 5.8)");
+        }
+        readback_normal_ = static_cast<u32>(normal->integer);
+        readback_critical_ = static_cast<u32>(critical->integer);
         language_ = language->string;
         pack_version_ = static_cast<u32>(version->integer);
         script_ = script->string;
@@ -532,6 +549,16 @@ bool LanguagePack::load(PackFiles files, const CommonPack& common, std::string& 
             if (word.find(' ') != std::string::npos) return fail(error, "patterns.bin", "a word element must be one token");
             patterns_[ref.pattern].elements[ref.element].word = std::move(word);
         }
+    }
+
+    // ---- negations.bin ----
+    {
+        if (!unwrap_container(*negations, PackKind::Negations, payload, length, why)) {
+            return fail(error, "negations.bin", why.c_str());
+        }
+        std::size_t used = 0u;
+        if (!negations_.attach(payload, length, used, why)) return fail(error, "negations.bin", why.c_str());
+        if (used != length) return fail(error, "negations.bin", "trailing bytes");
     }
 
     // ---- forms.bin ----
@@ -716,6 +743,12 @@ std::vector<u8> serialize_numbers(const AutomatonBuilder& automaton, const std::
     w.put32(static_cast<u32>(value_by_pattern.size()));
     for (u32 v : value_by_pattern) w.put32(v);
     return wrap_container(PackKind::Numbers, w.bytes);
+}
+
+std::vector<u8> serialize_negations(const AutomatonBuilder& automaton) {
+    Writer w;
+    automaton.serialize(w.bytes);
+    return wrap_container(PackKind::Negations, w.bytes);
 }
 
 std::vector<u8> serialize_forms(const std::vector<FormSource>& forms) {

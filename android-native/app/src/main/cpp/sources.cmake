@@ -57,6 +57,14 @@ set(ITANTRA_CORE_SOURCES
         tier2/tables.cpp
         tier2/encode.cpp
         tier2/decode.cpp
+        tier1/frame.cpp
+        tier1/decode.cpp
+        tier1/rules.cpp
+        tier1/head.cpp
+        tier1/adjacency.cpp
+        tier1/slots.cpp
+        tier1/readback.cpp
+        tier1/encode.cpp
 )
 
 # ---------------------------------------------------------------------------

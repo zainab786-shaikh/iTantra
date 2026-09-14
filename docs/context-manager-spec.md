@@ -29,6 +29,12 @@ Pinned when the Context Manager was implemented (`native/src/context/`). Items m
 - **Open:** the reset flag of §13.4 has no packet field and no defined effect; not implemented.
 - **Open:** `Context::seq` is one field, but both phones send. How `seq` is tracked per direction, and the commit order when both phones send at once, are receiver / synchronisation questions (Phases 10, 12).
 - **Open:** how `REF` resolves to a value ("same as the previous message", tier §5.6, receiver §4), and how `LAST_REF` is chosen by the sender, belong to Tier 1 and the receiver. `commit()` needs neither: `REF` is not a write, and `LAST_REF` is written like any slot.
+- **Phase 8 (Tier 1; tier spec implementation resolutions):**
+  - `REF` decodes, commits and resolves exactly like `INHERIT`, to `context.current` — provisional as a meaning. The Phase 8 sender never emits `REF`; its final meaning is otherwise deferred (Phase 10). The Tier 1 golden vectors pin `REF`'s encoding, not its meaning, so **any future change to what `REF` means requires a Tier 1 table / protocol version bump**.
+  - The Phase 8 sender never emits `REF` and never writes `LAST_REF`; both remain open.
+  - Staleness is sender-side: fresh = `age <= max_inherit_age`, default 254 (provisional). Because `INHERIT` does not reset `age` (§4.3), a repeatedly inherited value goes stale and is then sent explicitly.
+  - A fully explicit message (`allow_inheritance = false`) is supported. Which messages use it (the §16.1 periodic-explicit N) and the §13.4 reset flag remain open (Phase 12).
+  - On a hash mismatch the receiver resolves explicit slots only (§17, §19); the receiver pipeline's commit decision is Phase 10.
 
 ### Changes from v1.1
 
