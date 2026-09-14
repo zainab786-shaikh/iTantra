@@ -17,12 +17,25 @@ Recorded when the format froze (implementation plan Phase 3). These pin values t
 - §3.2 `negation` copies: `00` = false, `11` = true. `01` / `10` is a disagreement: the packet is rejected (receiver §3④).
 - §3.2 / §3.3 field order: common prefix, then the tier-specific field, then `context_hash`. Tier 2 with hash is 33 bits.
 - §3.3 `context_hash`: the 12-bit field carries the **low 12 bits** of the 16-bit context hash (`context-manager-spec.md` §5.2): `wire = hash16 & 0x0FFF`. Chosen by measurement over the §5.2 input: it detects every single-bit flip and every change confined to one slot's `ver`; no 16 → 12 bit mapping can detect every change confined to one slot's `current`.
-- §3.6 local counter width: `uint64_t`. Reconstruction per RFC 9000 Appendix A.3 with an 8-bit window: a counter within `[expected − 127, expected + 128]` is recovered exactly. The counter's starting value is not pinned here (Phase 4, with the nonce).
+- §3.6 local counter width: `uint64_t`. Reconstruction per RFC 9000 Appendix A.3 with an 8-bit window: a counter within `[expected − 127, expected + 128]` is recovered exactly. The counter's starting value is pinned with the nonce in Phase 4 (below).
 - §4 / §4.1 flush: binary-scaled arithmetic coder (Witten–Neal–Cleary), 32-bit precision, `native/src/coder/coder.h`. **Exactly 2 flush bits.** Pending underflow ("follow") bits are payload, not flush: bit length after the flush = metadata bits + committed payload bits + 2. Decoding does not depend on any bit after the flush.
 - §4 CRC-8: not implemented. Encryption is phase 1 (§6.10) and the AEAD tag replaces the CRC (§4.1, §6.2). The plaintext payload is metadata + payload + flush + zero padding.
 - §8.3 versions: coder version `1` (`kCoderVersion`), packet format version `1` (`kPacketFormatVersion`). How HELLO carries them is not pinned here.
 - §6.10.1 golden vectors: `native/test/golden/vectors.bin`, file format v1 — 59 vectors, 11 probability tables, 120,651 bytes, SHA-256 `E02141ABDA5C468D1E649666CAB3575611BE15D5D2079C2FCF9DE90D4F11C7B9`. Literals are represented by their UTF-8 bytes coded under a 256-symbol table, because the Tier 1 and Tier 2 tables do not exist until implementation phases 7–8; vectors for those tables are added then, leaving every existing vector byte-identical.
 - Still open: which language each 4-bit `language` value denotes (carried opaquely; language layer).
+
+Recorded when encryption was implemented (implementation plan Phase 4). These pin the encryption items of §8 ("KDF definition and inputs · nonce derivation function · counter width and the seq → counter reconstruction rule") and the cipher suite and KDF version checked at HELLO (§8.3). Golden vectors are unchanged: they remain the pre-encryption payload (§6.10.1).
+
+- §6.6 cipher suite `1`: ChaCha20-Poly1305 exactly as RFC 8439 (32-byte key, 12-byte nonce). Implementation: Monocypher 4.0.2, vendored unmodified in `native/src/third_party/monocypher/` (provenance and hashes in `VENDOR.md`); verified against the RFC 8439 §2.8.2 test vector. **No associated data** on native payloads.
+- §6.4 tag: the **first 4 bytes** of the 16-byte Poly1305 tag, appended after the ciphertext. Checked in constant time; on failure no plaintext is released and the packet is not parsed.
+- §6.7 KDF version `1`: HKDF-SHA-512 (RFC 5869). `PRK = HKDF-Extract(salt = initiator_nonce ‖ responder_nonce, IKM = PSK)`; `OKM = HKDF-Expand(PRK, info = ASCII "iTantra-session-v1", L = 36)`; session key = `OKM[0..32)`, `session_id` = `OKM[32..36)` big-endian. PSK 32 bytes; HELLO nonces 32 bytes each; order by HELLO role (initiator first), never by value.
+- §6.5 nonce: `session_id` (4 bytes, big-endian) ‖ big-endian `u64` of `(direction << 63) | counter`. `direction` 0 = initiator → responder, 1 = responder → initiator. Counters run from 1 to 2^63 − 1; beyond that the session must be re-keyed.
+- §3.6 counter start: the first message in each direction carries counter **1**; counter 0 is never sent. Consistent with `context-manager-spec.md` §5.3 (`seq` = 0 before any message) and `receiver-pipeline-spec.md` §3⑤ (expected = last + 1). A receiver's largest accepted counter starts at 0.
+- Sender binding: the wire `seq` must equal the nonce counter's low 8 bits; assembly refuses otherwise, and an authenticated packet whose `seq` differs from the counter used to open it is rejected.
+- §6.8 replay window: 128 counters behind the largest accepted, covering §3.6's reconstruction range; a counter is recorded only after authentication. Local state, not a wire contract.
+- §6.10.2 `ITANTRA_DISABLE_AEAD`: debug builds only. Sealing and opening pass the plaintext payload through unchanged with no tag, so output equals the golden vectors. Refused by CMake for release build types and a compile error wherever it meets `NDEBUG`.
+- **Open — spec gap:** §6.2 encrypts `seq`, while §3.6, §6.5 and receiver §3② need the counter reconstructed from `seq` to form the nonce before decryption. Not resolved; the decrypt interface takes the counter explicitly, pending the receiver pipeline.
+- **Open:** security review against a known-good reference (§6.9, decision register #26) is still required before ship.
 
 ### Changes from v1.1
 

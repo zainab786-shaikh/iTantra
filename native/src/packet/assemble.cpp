@@ -53,4 +53,27 @@ AsmResult assemble(const AssemblyInput& in, NativePayload& out) noexcept {
     return AsmResult::Ok;
 }
 
+AsmResult assemble_sealed(const AssemblyInput& in, const SessionKeys& keys, Direction direction,
+                          SeqCounter counter, SealedPayload& out) noexcept {
+    out.len = 0u;
+
+    u8 nonce[kAeadNonceBytes];
+    if (in.seq != seq_to_wire(counter) || !derive_nonce(keys.session_id, direction, counter, nonce)) {
+        return AsmResult::InvalidCounter;
+    }
+
+    NativePayload plain;
+    const AsmResult result = assemble(in, plain);
+    if (result != AsmResult::Ok) return result;
+
+    u32 sealed_length = 0u;
+    const AeadStatus status = aead_seal(keys.key, nonce, nullptr, 0u, plain.bytes, plain.len, out.bytes,
+                                        kMaxSealedPayloadBytes, sealed_length);
+    secure_wipe(plain.bytes, plain.len);
+    if (status != AeadStatus::Ok) return AsmResult::SealFailure;
+
+    out.len = static_cast<u16>(sealed_length);
+    return AsmResult::Ok;
+}
+
 }  // namespace itantra

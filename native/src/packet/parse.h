@@ -33,6 +33,9 @@ enum class ParseStatus : u8 {
     NoModel,            // no model for this metadata
     DecodeFailure,      // the model broke its contract (coder asserts in debug)
     InvalidArgument,    // null pointers, or more symbols than `capacity`
+    AuthenticationFailed,   // AEAD tag check failed: discard, nothing parsed (receiver §3②)
+    InvalidCounter,     // counter 0, above kMaxCounter, or invalid direction
+    SeqMismatch,        // authenticated, but seq is not the counter's low 8 bits
 };
 
 // Reads the metadata block from the start of `bytes`. On Ok,
@@ -63,5 +66,32 @@ struct ParsedPayload {
 
 ParseStatus parse(const u8* bytes, u32 length, const ModelSelector& selector,
                   ParsedPayload& out) noexcept;
+
+// ---------------------------------------------------------------------------
+// Decrypt before parse — packet §6.1, receiver §2 ② → ③, §11 R1 (Phase 4)
+// ---------------------------------------------------------------------------
+//
+// Authentication precedes everything: no metadata field is read and no symbol
+// decoded from a packet that fails it (receiver §2.1).
+//
+// `direction` is the SENDER's direction and `counter` the sender's wide
+// counter for this packet; together they select the nonce (crypto/nonce.h).
+//
+// SPEC GAP — not resolved here. The receiver reconstructs the counter from
+// seq (packet §3.6), but seq is inside the ciphertext (§6.2) and the counter
+// is needed to decrypt (§6.5, receiver §3②). How the receiver obtains the
+// counter before decrypting belongs to the receiver pipeline (Phase 10);
+// these functions take it explicitly and, once authenticated, confirm that
+// the decrypted seq matches it (SeqMismatch).
+
+// Decrypts and authenticates into `plaintext` (len set; metadata_bits 0).
+ParseStatus open_payload(const u8* sealed, u32 length, const SessionKeys& keys, Direction direction,
+                         SeqCounter counter, NativePayload& plaintext) noexcept;
+
+// open_payload, then parse. The decrypted plaintext is wiped before returning.
+// On any status other than Ok the contents of `out` are unspecified.
+ParseStatus open_and_parse(const u8* sealed, u32 length, const SessionKeys& keys, Direction direction,
+                           SeqCounter counter, const ModelSelector& selector,
+                           ParsedPayload& out) noexcept;
 
 }  // namespace itantra

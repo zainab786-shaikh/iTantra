@@ -20,7 +20,11 @@
 
 #include "coder/coder.h"
 #include "coder/model.h"
+#include "crypto/aead.h"
+#include "crypto/kdf.h"
+#include "crypto/nonce.h"
 #include "packet/metadata.h"
+#include "packet/seq.h"
 #include "common/types.h"
 
 namespace itantra {
@@ -137,6 +141,10 @@ enum class AsmResult : u8 {
                     // tier, or a null model / symbols pointer
     CoderFailure,   // a symbol with p == 0 under its model (programming error;
                     // the coder asserts in debug builds)
+    InvalidCounter, // assemble_sealed: counter 0, above kMaxCounter, invalid
+                    // direction, or in.seq is not the counter's low 8 bits
+    SealFailure,    // assemble_sealed: the AEAD refused its arguments (unreachable
+                    // for a valid payload)
 };
 
 Metadata metadata_of(const AssemblyInput& in) noexcept;
@@ -147,5 +155,33 @@ Metadata metadata_of(const AssemblyInput& in) noexcept;
 // hash_present with a context_hash wider than 12 bits is the programming error
 // packet §5 names: asserted in debug, InvalidField otherwise.
 AsmResult assemble(const AssemblyInput& in, NativePayload& out) noexcept;
+
+// ---------------------------------------------------------------------------
+// Encrypt after assembly — packet §6.1, §6.2, §6.10 (Phase 4)
+// ---------------------------------------------------------------------------
+//
+//   assemble()  →  plaintext native payload   ← golden vector boundary, unchanged
+//   aead_seal() →  ciphertext ‖ 4-byte tag     ← what the Kotlin layer carries
+//
+// Compress then encrypt, never the reverse (§6.1). The whole payload,
+// metadata included, is encrypted (§6.2). assemble() itself is untouched, so
+// the frozen golden vectors still describe its output exactly.
+//
+// `counter` is this message's wide counter in `direction` (crypto/nonce.h).
+// in.seq must equal seq_to_wire(counter): the seq on the wire and the counter
+// in the nonce are one value, never two sources of truth.
+
+constexpr u32 kMaxSealedPayloadBytes = kMaxPayloadBytes + kAeadTagBytes;
+static_assert(kMaxPayloadBytes <= kAeadMaxMessageBytes, "AEAD message bound");
+
+struct SealedPayload {
+    u8  bytes[kMaxSealedPayloadBytes];
+    u16 len;
+};
+
+// On any result other than Ok, out.len is 0. The intermediate plaintext is
+// wiped before returning.
+AsmResult assemble_sealed(const AssemblyInput& in, const SessionKeys& keys, Direction direction,
+                          SeqCounter counter, SealedPayload& out) noexcept;
 
 }  // namespace itantra

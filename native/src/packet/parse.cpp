@@ -61,4 +61,50 @@ ParseStatus parse(const u8* bytes, u32 length, const ModelSelector& selector,
                           kMaxSymbolCount);
 }
 
+ParseStatus open_payload(const u8* sealed, u32 length, const SessionKeys& keys, Direction direction,
+                         SeqCounter counter, NativePayload& plaintext) noexcept {
+    plaintext.len           = 0u;
+    plaintext.metadata_bits = 0u;
+    if (sealed == nullptr && length != 0u) return ParseStatus::InvalidArgument;
+
+    u8 nonce[kAeadNonceBytes];
+    if (!derive_nonce(keys.session_id, direction, counter, nonce)) return ParseStatus::InvalidCounter;
+
+    // Any AEAD refusal — bad tag, too short, larger than any payload — means
+    // discard (receiver §3②: corruption and tampering are indistinguishable).
+    u32 n = 0u;
+    if (aead_open(keys.key, nonce, nullptr, 0u, sealed, length, plaintext.bytes, kMaxPayloadBytes, n) !=
+        AeadStatus::Ok) {
+        return ParseStatus::AuthenticationFailed;
+    }
+    plaintext.len = static_cast<u16>(n);
+    return ParseStatus::Ok;
+}
+
+ParseStatus open_and_parse(const u8* sealed, u32 length, const SessionKeys& keys, Direction direction,
+                           SeqCounter counter, const ModelSelector& selector,
+                           ParsedPayload& out) noexcept {
+    NativePayload plain;
+    ParseStatus status = open_payload(sealed, length, keys, direction, counter, plain);
+    if (status != ParseStatus::Ok) return status;
+
+    u32 offset = 0u;
+    status = parse_metadata(plain.bytes, plain.len, out.metadata, offset);
+    if ((status == ParseStatus::Ok || status == ParseStatus::NegationMismatch) &&
+        out.metadata.seq != seq_to_wire(counter)) {
+        status = ParseStatus::SeqMismatch;
+    }
+    if (status == ParseStatus::Ok) {
+        out.metadata_bits = static_cast<u16>(offset);
+        const PayloadModel* model = selector.select(out.metadata);
+        status = model == nullptr
+                     ? ParseStatus::NoModel
+                     : decode_symbols(plain.bytes, plain.len, offset, out.metadata.symbol_count, *model,
+                                      out.symbols, kMaxSymbolCount);
+    }
+
+    secure_wipe(plain.bytes, plain.len);
+    return status;
+}
+
 }  // namespace itantra

@@ -37,6 +37,25 @@ set(ITANTRA_CORE_SOURCES
         packet/seq.cpp
         packet/assemble.cpp
         packet/parse.cpp
+        crypto/aead.cpp
+        crypto/kdf.cpp
+        crypto/nonce.cpp
+        crypto/replay.cpp
+)
+
+# ---------------------------------------------------------------------------
+# Third-party, vendored unmodified under native/src/third_party/ (provenance
+# in each directory's VENDOR.md). Portable, no JNI. Kept apart from
+# ITANTRA_CORE_SOURCES so neither build holds vendored code to the project's
+# own warning flags. Covered by the C-04 no-float scan all the same.
+#
+# Monocypher 4.0.2 — ChaCha20-Poly1305 and HKDF-SHA-512 (implementation plan
+# Phase 4). Compiled as C++: its README states the sources "compile as C
+# (since C99) and C++ (since C++98)", so no C toolchain is needed.
+# ---------------------------------------------------------------------------
+set(ITANTRA_THIRD_PARTY_SOURCES
+        third_party/monocypher/monocypher.c
+        third_party/monocypher/monocypher-ed25519.c
 )
 
 # ---------------------------------------------------------------------------
@@ -51,3 +70,5 @@ set(ITANTRA_JNI_SOURCES
 
 list(TRANSFORM ITANTRA_CORE_SOURCES PREPEND "${ITANTRA_CORE_DIR}/")
 list(TRANSFORM ITANTRA_JNI_SOURCES PREPEND "${ITANTRA_CPP_DIR}/")
+list(TRANSFORM ITANTRA_THIRD_PARTY_SOURCES PREPEND "${ITANTRA_CORE_DIR}/")
+set_source_files_properties(${ITANTRA_THIRD_PARTY_SOURCES} PROPERTIES LANGUAGE CXX)

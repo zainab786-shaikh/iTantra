@@ -17,6 +17,7 @@ add_library(
         SHARED
         ${ITANTRA_JNI_SOURCES}
         ${ITANTRA_CORE_SOURCES}
+        ${ITANTRA_THIRD_PARTY_SOURCES}
 )
 
 target_include_directories(itantra-native PRIVATE "${ITANTRA_CPP_DIR}" "${ITANTRA_CORE_DIR}")

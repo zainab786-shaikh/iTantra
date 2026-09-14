@@ -48,6 +48,7 @@ target_compile_options(itantra-c04-check PRIVATE ${ITANTRA_HOST_WARNINGS})
 
 file(GLOB_RECURSE ITANTRA_C04_FILES CONFIGURE_DEPENDS
         "${ITANTRA_CORE_DIR}/*.h"
+        "${ITANTRA_CORE_DIR}/*.c"
         "${ITANTRA_CORE_DIR}/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/test/unit/*.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/test/unit/*.cpp"
@@ -57,8 +58,8 @@ file(GLOB_RECURSE ITANTRA_C04_FILES CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/*.cpp")
 list(APPEND ITANTRA_C04_FILES "${CMAKE_CURRENT_SOURCE_DIR}/test/itest.h")
 
-# A core source outside native/src would silently escape the check.
-foreach(core_source IN LISTS ITANTRA_CORE_SOURCES)
+# A core or vendored source outside native/src would silently escape the check.
+foreach(core_source IN LISTS ITANTRA_CORE_SOURCES ITANTRA_THIRD_PARTY_SOURCES)
     if(NOT core_source IN_LIST ITANTRA_C04_FILES)
         message(FATAL_ERROR "C-04: core source ${core_source} is not covered by the "
                             "no-float check. Core sources must live under ${ITANTRA_CORE_DIR}.")
@@ -79,10 +80,47 @@ add_custom_target(itantra-c04 ALL DEPENDS "${ITANTRA_C04_STAMP}")
 # ---------------------------------------------------------------------------
 # Portable core — the same translation units as libitantra-native.so.
 # ---------------------------------------------------------------------------
+# Vendored third-party code (sources.cmake), not held to the project's
+# warnings-as-errors flags. Same translation units as the Android library.
+add_library(itantra-third-party STATIC ${ITANTRA_THIRD_PARTY_SOURCES})
+target_include_directories(itantra-third-party PUBLIC "${ITANTRA_CORE_DIR}")
+add_dependencies(itantra-third-party itantra-c04)
+
 add_library(itantra-core STATIC ${ITANTRA_CORE_SOURCES})
 target_include_directories(itantra-core PUBLIC "${ITANTRA_CORE_DIR}")
 target_compile_options(itantra-core PRIVATE ${ITANTRA_HOST_WARNINGS})
+target_link_libraries(itantra-core PUBLIC itantra-third-party)
 add_dependencies(itantra-core itantra-c04)
+
+# ---------------------------------------------------------------------------
+# ITANTRA_DISABLE_AEAD — packet §6.10.2, implementation plan Phase 4.
+#
+# A diagnostic, not a staging mechanism: with it, sealed payloads are the
+# plaintext payload, so a C-01 failure can be pinned on the payload or the
+# crypto. Debug builds only. Two independent guards keep it out of release:
+#   - here: refused for single-config release build types, and applied only
+#     to the Debug configuration of multi-config generators
+#   - crypto/aead.h: #error whenever the flag meets NDEBUG (contract C-43)
+# ---------------------------------------------------------------------------
+option(ITANTRA_DISABLE_AEAD "Debug-only diagnostic: bypass AEAD (packet 6.10.2)" OFF)
+if(ITANTRA_DISABLE_AEAD)
+    if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$")
+        message(FATAL_ERROR "ITANTRA_DISABLE_AEAD is debug-only and must not be set for a "
+                            "${CMAKE_BUILD_TYPE} build (packet §6.10.2, contract C-43).")
+    endif()
+    target_compile_definitions(itantra-core PUBLIC $<$<CONFIG:Debug>:ITANTRA_DISABLE_AEAD>)
+    message(WARNING "ITANTRA_DISABLE_AEAD is ON: Debug builds do not encrypt or authenticate.")
+endif()
+
+# The same core compiled with the bypass, for the plan's "ITANTRA_DISABLE_AEAD
+# bypasses cleanly in debug" test. Debug configuration only; in any other
+# configuration it is the normal core and the test reports itself skipped.
+add_library(itantra-core-aead-bypass STATIC EXCLUDE_FROM_ALL ${ITANTRA_CORE_SOURCES})
+target_include_directories(itantra-core-aead-bypass PUBLIC "${ITANTRA_CORE_DIR}")
+target_compile_options(itantra-core-aead-bypass PRIVATE ${ITANTRA_HOST_WARNINGS})
+target_compile_definitions(itantra-core-aead-bypass PUBLIC $<$<CONFIG:Debug>:ITANTRA_DISABLE_AEAD>)
+target_link_libraries(itantra-core-aead-bypass PUBLIC itantra-third-party)
+add_dependencies(itantra-core-aead-bypass itantra-c04)
 
 # ---------------------------------------------------------------------------
 # [H] tests. Run with:  ctest --test-dir native/build -C Debug
@@ -158,3 +196,38 @@ target_include_directories(c01_c04_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tes
 target_compile_options(c01_c04_test PRIVATE ${ITANTRA_HOST_WARNINGS})
 add_test(NAME conformance.c01_c04
          COMMAND c01_c04_test --vectors "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/vectors.bin")
+
+# ---------------------------------------------------------------------------
+# Phase 4 — encryption
+# ---------------------------------------------------------------------------
+itantra_host_test(unit.crypto crypto_test test/unit/crypto_test.cpp)
+set_tests_properties(unit.crypto PROPERTIES SKIP_REGULAR_EXPRESSION "AEAD-BYPASSED")
+
+# C-40, C-41. C-42 [P] and C-43 [D] are reported skipped by the binary.
+add_executable(c40_c43_test test/conformance/c40_c43.cpp)
+target_link_libraries(c40_c43_test PRIVATE itantra-core)
+target_include_directories(c40_c43_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+target_compile_options(c40_c43_test PRIVATE ${ITANTRA_HOST_WARNINGS})
+add_test(NAME conformance.c40_c43
+         COMMAND c40_c43_test --vectors "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/vectors.bin")
+set_tests_properties(conformance.c40_c43 PROPERTIES SKIP_REGULAR_EXPRESSION "AEAD-BYPASSED")
+
+# "ITANTRA_DISABLE_AEAD bypasses cleanly in debug".
+add_executable(aead_bypass_test test/unit/aead_bypass_test.cpp)
+target_link_libraries(aead_bypass_test PRIVATE itantra-core-aead-bypass)
+target_include_directories(aead_bypass_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+target_compile_options(aead_bypass_test PRIVATE ${ITANTRA_HOST_WARNINGS})
+add_test(NAME unit.aead-bypass
+         COMMAND aead_bypass_test --vectors "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/vectors.bin")
+set_tests_properties(unit.aead-bypass PROPERTIES SKIP_REGULAR_EXPRESSION "AEAD-BYPASS-NOT-BUILT")
+
+# C-43 host precondition: a translation unit with NDEBUG and ITANTRA_DISABLE_AEAD
+# must fail to compile with the guard's own message. The probe is excluded
+# from the normal build; this test builds it on purpose.
+add_executable(c43_release_guard_probe EXCLUDE_FROM_ALL test/conformance/c43_release_guard_probe.cpp)
+target_include_directories(c43_release_guard_probe PRIVATE "${ITANTRA_CORE_DIR}")
+add_test(NAME C-43.precondition.release-guard
+         COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}" --target c43_release_guard_probe --config $<CONFIG>)
+set_tests_properties(C-43.precondition.release-guard PROPERTIES
+        PASS_REGULAR_EXPRESSION "ITANTRA_DISABLE_AEAD must not reach a release build"
+        TIMEOUT 300)
