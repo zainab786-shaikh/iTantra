@@ -231,3 +231,13 @@ add_test(NAME C-43.precondition.release-guard
 set_tests_properties(C-43.precondition.release-guard PROPERTIES
         PASS_REGULAR_EXPRESSION "ITANTRA_DISABLE_AEAD must not reach a release build"
         TIMEOUT 300)
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Context Manager
+# ---------------------------------------------------------------------------
+# The second source file is a separate translation unit that takes commit()'s
+# address: "commit() is ONE function — sender and receiver call the same symbol".
+itantra_host_test(unit.context context_test test/unit/context_test.cpp)
+target_sources(context_test PRIVATE test/unit/context_commit_other_tu.cpp)
+
+itantra_host_test(C-32 c32_test test/conformance/c32.cpp)

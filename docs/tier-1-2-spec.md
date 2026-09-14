@@ -9,6 +9,10 @@
 **Companions:** `language-layer-spec.md` v1.3 · `context-manager-spec.md` v1.2 · `packet-security-transport-spec.md` v1.2 · `receiver-pipeline-spec.md` v1.2
 **Implementation:** C++17, integer arithmetic only, exposed to Android via JNI
 
+### Implementation resolutions — v1.5 (no version bump, no spec-body change)
+
+- §5.6 / register #9 — **`TIME` never inherits and never uses `REF`.** This is authoritative. `context-manager-spec.md` §13.3 contains older wording that allows a resolved absolute `TIME` to be inherited; that wording is superseded (recorded in the context spec's Phase 5 implementation resolutions). A resolved `TIME` may still be sent explicitly. Enforced in `native/src/context/context.cpp` (`commit()` refuses `INHERIT` / `REF` on `TIME`) and tested by `unit.context` `time_never_inherits`. The Phase 8 slot-resolution code must not emit `INHERIT` or `REF` for `TIME`.
+
 ### Changes from v1.4
 
 - §5.4 — the rule table's numeric ordering field is renamed **`rule_priority`**, to keep it distinct from message priority.

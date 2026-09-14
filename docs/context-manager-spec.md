@@ -12,7 +12,23 @@
 
 - §5.2 — **context hash algorithm resolved** (implementation plan Phase 1). §5.2 fixed the inputs but not the function. Pinned as **CRC-16/CCITT-FALSE**: polynomial `0x1021`, init `0xFFFF`, no input/output reflection, xorout `0x0000` (check value over ASCII `"123456789"` = `0x29B1`). Input is 24 bytes: for each slot in `SlotId` order, `current >> 8`, `current & 0xFF`, `ver`. Output is 16 bits. Implemented in `native/src/common/hash.h`.
 - **Resolved in Phase 3:** the 12-bit wire field (`packet-security-transport-spec.md` §3.3) carries the low 12 bits of this 16-bit hash, `hash & 0x0FFF`. Both phones map their own pre-message hash and compare wire values. Recorded in that spec's implementation resolutions; implemented in `native/src/packet/metadata.h`.
-- **Explicitly deferred to Phase 5:** the representation of the `LAST_REF` null index (§2.4). Not resolved by this entry.
+- **Resolved in Phase 5 — `LAST_REF` null (§2.4):** `LAST_REF.current` stores the target slot index **+ 1**; **0 = null** (no reference active). Valid targets are `ACTOR` … `STATE`, stored 1 … 7; `LAST_REF` cannot point at itself, and a stored value above 7 is rejected. This keeps §5.3 exact: the all-zero initial table means "no reference", and its hash is unchanged. Implemented in `native/src/context/context.h`.
+
+### Implementation resolutions — Phase 5 (no version bump, no spec-body change)
+
+Pinned when the Context Manager was implemented (`native/src/context/`). Items marked *pairing* change the context hash or the committed state both phones must agree on.
+
+- §4.2 first write to an empty slot (`current == 0`, `V != 0`): `current = V`, `ver += 1`, `age = 0`; nothing is pushed into `recent[]`. The rule's `S.current != 0` condition is read as "0 is never a value to remember". *pairing*
+- Value `0` means empty (Appendix B) and is not writable; there is no clear operation. *pairing*
+- §4.3 `age` saturates at 255 instead of wrapping, so a stale value can never read as fresh. Sender-only; no wire or hash effect.
+- §4.3 every slot the message does not write ages by one: `INHERIT`, `REF`, `LITERAL` (never stored, tier §5.7) and slots the message does not mention.
+- `TIME`: `commit()` refuses `INHERIT` **and** `REF` on `TIME` (tier §5.6, tier register #9, handoff "TIME never inherits"). A resolved `TIME` may be written.
+- `commit(Context&, const CommitPayload&)`: one function for both phones. It validates the whole payload before applying any of it, so an invalid payload changes nothing. It recomputes `Context::hash` afterwards, which is the pre-message hash (§5.2) for the next message, and sets `Context::seq` to the committed message's `seq`. It never changes `context_id`.
+- The payload `commit()` reads is one operation per slot — `Absent`, `Write(value)`, `Literal`, `Inherit`, `Ref` — built from the encoded or decoded payload, never from what was extracted (§10).
+- **Resolved — `TIME` inheritance conflict:** §13.3 contains older wording that lets an absolute `TIME` be "stored and inherited once resolved". That wording is superseded. **Authoritative decision: `TIME` never inherits and never uses `REF`**, matching `tier-1-2-spec.md` §5.6 and decision register #9 and the implementation handoff. A resolved `TIME` may still be written (stored) explicitly. The Phase 5 implementation already enforces this: `commit()` returns `TimeInherited` for `INHERIT` or `REF` on `TIME` and leaves the context unchanged. Tests: `unit.context` `time_never_inherits`. The §13.3 text itself is left as written.
+- **Open:** the reset flag of §13.4 has no packet field and no defined effect; not implemented.
+- **Open:** `Context::seq` is one field, but both phones send. How `seq` is tracked per direction, and the commit order when both phones send at once, are receiver / synchronisation questions (Phases 10, 12).
+- **Open:** how `REF` resolves to a value ("same as the previous message", tier §5.6, receiver §4), and how `LAST_REF` is chosen by the sender, belong to Tier 1 and the receiver. `commit()` needs neither: `REF` is not a write, and `LAST_REF` is written like any slot.
 
 ### Changes from v1.1
 

@@ -41,6 +41,8 @@ set(ITANTRA_CORE_SOURCES
         crypto/kdf.cpp
         crypto/nonce.cpp
         crypto/replay.cpp
+        context/context.cpp
+        context/hash.cpp
 )
 
 # ---------------------------------------------------------------------------
