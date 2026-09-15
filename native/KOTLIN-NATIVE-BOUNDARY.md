@@ -1,8 +1,69 @@
-# The Kotlin ↔ Native Boundary, as it stands after Phase 0
+# The Kotlin ↔ Native Boundary
 
-Required by the implementation plan's Phase 0 exit criteria. This records the
-boundary **as it actually is today**, not as it will be. Phase 11 replaces most
-of it.
+Required by the implementation plan's Phase 0 exit criteria, and brought up to
+date in Phase 11. **§0 is the boundary as it stands after Phase 11.** §1–§5 are
+the Phase 0 record, kept for history; where they disagree with §0, §0 wins.
+
+---
+
+## 0. After Phase 11
+
+```
+Kotlin (com.itantra.app)                         C++ (native/src)
+------------------------                         ----------------
+TransmitterViewModel.handleSegment
+  STT text ─► transmit()
+    buildNativePackets()          packet/PacketFactory.kt
+      NativeEngine.sendUtterance ─JNI─► api/engine.cpp  Engine::send_utterance
+         (ONE call per utterance)         extract_utterance → per clause:
+                                          select_tier → aead_seal → commit
+      ◄── NativeClauseEncoding[] ───────  one result per clause
+    ITantraPacket(payload = sealed) ─► ThrottledTransport ─► MockTransport (loopback)
+                                                               │
+ReceiverViewModel.handlePacket ◄───────────────────────────────┘
+  NativeEngine.receive ─JNI─► api/engine.cpp  Engine::receive
+     (ONE call per payload)      receive_native_payload (receiver §2)
+  ◄── NativeReceiveResult ─────  receiver §7: text · language · mode ·
+                                 priority · unresolved[] · status
+  → ReceivedMessage → TtsManager (voice from the output's language id)
+```
+
+| | |
+|---|---|
+| Library | `libitantra-native.so`, `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` |
+| JNI adapter | `android-native/app/src/main/cpp/itantra-native.cpp` — conversion only |
+| Engine | `native/src/api/engine.h` — in `ITANTRA_CORE_SOURCES`, host-tested |
+| Kotlin wrapper | `app/.../native/NativeBridge.kt` (load, packs), `NativeEngine.kt` (calls, result types) |
+| Packs | synthetic fixture packs (hi, ta, en), built by `itantra-packc`, packaged as `assets/itantra/packs/` |
+| Session | per-launch loopback: random PSK + HELLO nonces → pinned KDF; this phone's receiver authenticates its own stream |
+| Link | `AppViewModel.USE_REAL_LINK = false` — the in-app loopback, until HELLO (Phase 12) |
+
+Rules that hold at this boundary:
+
+- **Coarse.** Send crosses once per utterance and returns one result per clause
+  (Kotlin cannot segment clauses without calling native); receive crosses once
+  per payload. No per-token or per-symbol entry point exists.
+- **Text as UTF-8 bytes** in both directions, never JNI strings (modified UTF-8
+  would change supplementary-plane text; Tier 2 is byte-exact).
+- **The payload stays opaque.** Tier, priority, language and unresolved slots
+  reach Kotlin only through the engine's results, never by parsing bytes.
+- **`unresolved[]`** reaches `ReceivedMessage` as slot names only, with empty
+  text; such rows are never spoken or replayed (C-31).
+- **STT confidence.** The recogniser reports none, so Kotlin passes
+  `NativeBridge.CONFIDENCE_UNAVAILABLE`, which is below every threshold: live
+  speech is always Tier 2 (C-25) until a confidence scale exists.
+- **Priority** comes from the native sender (`is_alert` of a verified Tier 1
+  intent, or "Send as Critical"); the Kotlin keyword classifier is no longer on
+  the send path.
+- `ITANTRA_DISABLE_AEAD`: `-Pitantra.disableAead=true` → CMake; compile error in
+  release builds (C-43).
+
+Device conformance programs (C-01/C-02, C-33) are built from the same
+`sources.cmake` by a third entry point, `native/test/device/CMakeLists.txt`.
+
+---
+
+# Phase 0 record
 
 Spec basis: `packet-security-transport-spec.md` §1.1–1.4, `receiver-pipeline-spec.md` §1.1,
 `tier-1-2-spec.md` §9.2, `IMPLEMENTATION-HANDOFF.md` "JNI BOUNDARY".

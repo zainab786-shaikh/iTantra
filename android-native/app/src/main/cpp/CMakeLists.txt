@@ -22,6 +22,17 @@ add_library(
 
 target_include_directories(itantra-native PRIVATE "${ITANTRA_CPP_DIR}" "${ITANTRA_CORE_DIR}")
 
+# ITANTRA_DISABLE_AEAD — packet §6.10.2, implementation plan Phase 11. A debug-only
+# diagnostic for C-01 (isolate payload vs crypto), never a staging switch. Gradle
+# passes it with -Pitantra.disableAead=true. It is applied as given: a build type
+# that defines NDEBUG (AGP's release build) meets the #error in crypto/aead.h and
+# fails to compile, which is contract C-43.
+option(ITANTRA_DISABLE_AEAD "Debug-only diagnostic: bypass AEAD (packet 6.10.2)" OFF)
+if(ITANTRA_DISABLE_AEAD)
+    target_compile_definitions(itantra-native PRIVATE ITANTRA_DISABLE_AEAD)
+    message(WARNING "ITANTRA_DISABLE_AEAD is ON: libitantra-native.so neither encrypts nor authenticates.")
+endif()
+
 find_library(
         log-lib
         log

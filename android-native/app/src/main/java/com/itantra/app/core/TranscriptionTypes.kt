@@ -1,6 +1,7 @@
 package com.itantra.app.core
 
 import com.itantra.app.packet.ITantraPacket
+import com.itantra.app.packet.NativeSendInfo
 import com.itantra.app.packet.PacketPriority
 import com.itantra.app.stt.SttEngineKind
 
@@ -94,4 +95,6 @@ data class LogEntry(
     val latencyMs: Long,
     /** True when the text came from the simulated recogniser, not a real decode. */
     val simulated: Boolean,
+    /** What the native sender did with this clause (Phase 11). Sender-side copy. */
+    val native: NativeSendInfo? = null,
 )

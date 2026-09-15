@@ -383,6 +383,30 @@ itantra_fixture_test(unit.receiver receiver_test test/unit/receiver_test.cpp
 itantra_fixture_test(conformance.c31 c31_test test/conformance/c31.cpp
         --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")
 
+# ---------------------------------------------------------------------------
+# Phase 11 — Kotlin integration
+# ---------------------------------------------------------------------------
+# The phone engine behind the JNI (api/engine.h) is part of ITANTRA_CORE_SOURCES.
+# C-01, C-02 and C-33 are [D]: native/test/device/CMakeLists.txt builds these
+# same programs with the NDK and they run on each device. Here they are the host
+# reference run; host results do not substitute for device results (contract §7.1).
+
+# C-01 / C-02, AEAD bypassed: Debug configuration only (the bypass library applies
+# ITANTRA_DISABLE_AEAD to Debug); other configurations report AEAD-NOT-BYPASSED.
+add_executable(c01_device_test test/conformance/c01_device.cpp)
+target_link_libraries(c01_device_test PRIVATE itantra-core-aead-bypass)
+target_include_directories(c01_device_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+target_compile_options(c01_device_test PRIVATE ${ITANTRA_HOST_WARNINGS})
+add_test(NAME conformance.c01_device
+         COMMAND c01_device_test --vectors "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/vectors.bin"
+                 --tier-vectors "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/tier_vectors.bin")
+set_tests_properties(conformance.c01_device PROPERTIES SKIP_REGULAR_EXPRESSION "AEAD-NOT-BYPASSED")
+
+# C-33: a 100,000-message loopback session through the engine, every nonce logged.
+itantra_fixture_test(conformance.c33 c33_device_test test/conformance/c33_device.cpp
+        --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")
+set_tests_properties(conformance.c33 PROPERTIES TIMEOUT 1800)
+
 add_test(NAME rulec.accepts.fixture
          COMMAND itantra-rulec --common "${ITANTRA_FIXTURE_SRC}/common"
                  --rules "${ITANTRA_FIXTURE_SRC}/sender/rules.tsv" --answers "${ITANTRA_FIXTURE_SRC}/sender/answers.tsv")

@@ -17,10 +17,12 @@ enum class ReceivedMessageState(val value: String) {
  *
  * This is the Kotlin side of what `receiver-pipeline-spec.md` §7 calls the
  * output interface — `text`, `language id`, `mode`, `priority`, `unresolved[]`,
- * `status`. Phase 0 carries the first four in the shape below; `mode` (the
- * tier) and `unresolved[]` arrive with the native receive pipeline in
- * Phases 10-11, and `unresolved[]` brings a hard contract with it (§7.1): a
- * slot listed there must never be spoken, displayed or defaulted.
+ * `status` — as the native receive pipeline returned it (Phase 11). `status`
+ * other than ok shows as [ReceivedMessageState.ERROR] with [error].
+ *
+ * `unresolved[]` brings a hard contract with it (§7.1): a slot listed there
+ * must never be spoken, displayed or defaulted. Only its name is held here;
+ * no value for it exists anywhere in this object, and [text] is empty.
  */
 data class ReceivedMessage(
     val packet: ITantraPacket,
@@ -47,4 +49,11 @@ data class ReceivedMessage(
     /** Set when [state] is ERROR — a short, user-facing message. */
     val error: String?,
     val receivedAt: Long,
+    /**
+     * 1 or 2 — which tier delivered (`receiver §7.3`: surfaced so the operator
+     * knows whether this is their own language or the sender's); 0 when unknown.
+     */
+    val tier: Int = 0,
+    /** Names of the slots in `unresolved[]` (`receiver §7.1`, C-31). Never values. */
+    val unresolved: List<String> = emptyList(),
 )

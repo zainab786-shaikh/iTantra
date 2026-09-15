@@ -68,6 +68,7 @@ set(ITANTRA_CORE_SOURCES
         tier1/encode.cpp
         select/select.cpp
         receiver/pipeline.cpp
+        api/engine.cpp
 )
 
 # ---------------------------------------------------------------------------

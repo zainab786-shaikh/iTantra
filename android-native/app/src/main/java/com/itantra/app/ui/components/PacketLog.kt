@@ -130,11 +130,18 @@ fun PacketLog(entries: List<LogEntry>, onClear: () -> Unit) {
                                     fontWeight = FontWeight.Black,
                                 )
                             }
-                            // The RAW / PACK7 / PHRASE chip stood here. Those
-                            // modes are retired (`packet §1.4`); the tier that
-                            // replaces them is inside the native payload and is
-                            // not readable at this layer (`packet §1.1`).
-                            // Phase 11 reinstates it as a tier chip.
+                            // The tier chip, where the retired RAW / PACK7 /
+                            // PHRASE chip stood (`packet §1.4`). Read from what
+                            // the native sender reported on this device, never
+                            // out of the payload (`packet §1.1`).
+                            entry.native?.let { info ->
+                                Text(
+                                    "T${info.tier}",
+                                    color = AppColor.Primary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                )
+                            }
                             // Stated rather than hidden: the frame carries a
                             // header, and on a 2-byte payload that is most of
                             // what goes out.

@@ -2,7 +2,10 @@ package com.itantra.app.viewmodel
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
+import com.itantra.app.native.NativeBridge
+import com.itantra.app.native.NativeEngine
 import com.itantra.app.transport.LORA_SF12_BPS
 import com.itantra.app.transport.LinkControl
 import com.itantra.app.transport.MockTransport
@@ -10,6 +13,8 @@ import com.itantra.app.transport.ThrottleControl
 import com.itantra.app.transport.ThrottledTransport
 import com.itantra.app.transport.Transport
 import com.itantra.app.transport.UdpTransport
+
+private const val TAG = "AppViewModel"
 
 /**
  * Direct port of App.tsx's root-component ownership: one transport instance
@@ -31,11 +36,15 @@ import com.itantra.app.transport.UdpTransport
  */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
-    init {
-        if (com.itantra.app.native.NativeBridge.isNativeLoaded()) {
-            android.util.Log.i("AppViewModel", "C++ Native Engine initialized: ${com.itantra.app.native.NativeBridge.getNativeVersion()}")
-        }
-    }
+    /**
+     * The phone's native engine (Phase 11): packs, contexts, counter and keys.
+     * One instance serves both screens, because in the single-device loopback
+     * this phone's receiver authenticates this phone's own stream.
+     *
+     * Null only when libitantra-native.so or its packs failed to load; both
+     * view models then say so instead of sending or decoding anything.
+     */
+    private val nativeEngine: NativeEngine? = createNativeEngine(application)
 
     /**
      * Flip to false to fall back to the in-app loopback.
@@ -77,18 +86,55 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** Always available: the throttle wraps every transport. */
     val throttle: ThrottleControl = throttled
 
-    val transmitter = TransmitterViewModel(application, transport)
-    val receiver = ReceiverViewModel(application, transport)
+    val receiver = ReceiverViewModel(application, transport, nativeEngine)
+
+    // In the loopback the listener is this phone's own receiver, so its language
+    // setting is the one the sender's cross-language rule must use (`tier §11.3`).
+    val transmitter = TransmitterViewModel(application, transport, nativeEngine, listenerLanguage = { receiver.language.value })
 
     override fun onCleared() {
         transmitter.dispose()
         receiver.dispose()
         udp?.dispose()
+        nativeEngine?.close()
     }
 
     private companion object {
-        const val USE_REAL_LINK = true
+        /**
+         * false: the in-app loopback, for Phase 11.
+         *
+         * The native session is keyed per launch from this phone's own
+         * randomness (NativeEngine.beginLoopbackSession). PSK provisioning and
+         * HELLO — which let two phones derive the same session key
+         * (`packet §6.7`, `context §18.1`) — are Phase 12. Until then a second
+         * phone cannot authenticate this phone's payloads and its receiver
+         * discards them, as it must (`receiver §3②`). Phase 11's exit criterion
+         * is speech → speech on a single device, so the loopback is the link.
+         * Set back to true once HELLO exists.
+         */
+        const val USE_REAL_LINK = false
         const val KEY_THROTTLE_BPS = "throttle-bps"
         const val KEY_THROTTLE_ON = "throttle-on"
+
+        fun createNativeEngine(application: Application): NativeEngine? {
+            if (!NativeBridge.isNativeLoaded()) {
+                Log.e(TAG, "libitantra-native.so is not loaded: no native pipeline")
+                return null
+            }
+            return try {
+                val packs = NativeBridge.readPacks(application.assets)
+                NativeBridge.createEngine(packs).also { engine ->
+                    engine.beginLoopbackSession()
+                    Log.i(
+                        TAG,
+                        "${NativeBridge.version()}; ${packs.size} pack files, languages ${engine.languages}; " +
+                            "loopback session started",
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "native engine failed to load", e)
+                null
+            }
+        }
     }
 }

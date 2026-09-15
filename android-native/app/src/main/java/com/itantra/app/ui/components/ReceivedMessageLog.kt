@@ -180,16 +180,19 @@ fun ReceivedMessageLog(
                                         fontWeight = FontWeight.Black,
                                     )
                                 }
-                                // The mode chip and the sender→receiver language
-                                // arrow stood here. Both read fields that left
-                                // the outer frame in Phase 0 (`packet §1.3`).
-                                //
-                                // Phase 11 restores them from the decoded native
-                                // payload, where the rule is per tier
-                                // (`receiver §7.2`): Tier 1 renders in the
-                                // RECEIVER's language, Tier 2 in the SENDER's —
-                                // and `receiver §7.3` says the operator should
-                                // always be shown which of the two delivered.
+                                // `receiver §7.3`: the operator is shown which
+                                // tier delivered, read from the native output
+                                // interface. Tier 1 renders in the RECEIVER's
+                                // language, Tier 2 is the SENDER's own words
+                                // (`receiver §7.2`).
+                                if (m.tier != 0) {
+                                    Text(
+                                        if (m.tier == 1) "T1 · YOUR LANGUAGE" else "T2 · SENDER'S WORDS",
+                                        color = AppColor.TextFaint,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
                             }
                         }
 

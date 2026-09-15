@@ -52,6 +52,18 @@ fun TelemetryStrip(latest: LogEntry?, pauseMs: Int, onPauseChange: (Int) -> Unit
                 originalBytes = latest.originalBytes,
                 payloadBytes = latest.packet.payload.size,
             )
+            // The complete native packet, split the way `packet §9` counts it:
+            // plaintext payload plus the authentication tag.
+            latest.native?.let { info ->
+                val tagBytes = latest.packet.payload.size - info.plaintextBytes
+                Text(
+                    "TIER ${info.tier} · ${latest.packet.payload.size} B native packet " +
+                        "(${info.plaintextBytes} B payload + $tagBytes B tag)" +
+                        if (info.tier == 2 && info.safetyTrigger != "None") " · Tier 1 not safe: ${info.safetyTrigger}" else "",
+                    color = AppColor.TextMuted,
+                    fontSize = 10.5.sp,
+                )
+            }
         }
 
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(AppColor.Hairline))
