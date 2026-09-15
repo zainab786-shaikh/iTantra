@@ -1,0 +1,9 @@
+{
+  "language": "ta",
+  "pack_version": 1,
+  "script": "Taml",
+  "tts_voice": "fixture-ta",
+  "stt_confidence_threshold": 550,
+  "readback_normal": 550,
+  "readback_critical": 750
+}

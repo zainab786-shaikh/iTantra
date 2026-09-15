@@ -78,6 +78,29 @@ fun AirtimeRace(
             return@Column
         }
 
+        if (!cost.hasOriginal) {
+            // An inbound frame. The source size is not on the wire any more
+            // (`packet §1.3`), so there is no honest "uncompressed" bar to race
+            // against — only the sender knows that figure. Show what this end
+            // genuinely measured instead of inventing the other half.
+            Text(
+                "Received: ${cost.sentFrameBytes} B frame, " +
+                    "%.2f s airtime at $bitsPerSecond bps.".format(
+                        airtimeMs(cost.sentFrameBytes, bitsPerSecond) / 1000.0,
+                    ),
+                color = AppColor.TextFaint,
+                fontSize = 11.5.sp,
+            )
+            Text(
+                "The uncompressed comparison is a sender-side figure and is not " +
+                    "transmitted, so it is shown only for messages this device sent.",
+                color = AppColor.TextFaint,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+            )
+            return@Column
+        }
+
         val rawMs = airtimeMs(cost.uncompressedFrameBytes, bitsPerSecond)
         val sentMs = airtimeMs(cost.sentFrameBytes, bitsPerSecond)
         // The slower of the two sets the full width, so the bars are directly
@@ -114,12 +137,15 @@ fun AirtimeRace(
             color = AppColor.TextMuted,
         )
         RaceBar(
-            label = cost.mode.name,
+            // The mode name (RAW / PACK7 / PHRASE) used to label this bar. Those
+            // modes are retired (`packet §1.4`) and the tier that replaces them
+            // is inside the native payload, unreadable here until Phase 11.
+            label = "SENT",
             detail = "${cost.sentFrameBytes} B",
             seconds = sentMs / 1000.0,
             fraction = sentProgress.value,
             widthShare = sentMs.toFloat() / slowestMs,
-            color = modeColor(cost.mode),
+            color = AppColor.Accent,
         )
 
         val saved = rawMs - sentMs

@@ -1,0 +1,39 @@
+# Expected renderings of language-neutral frames. Columns: intent	slots	lang	expected
+#
+# slots  the intent's REQUIRED slots, in slot order, separated by "; ":
+#          SLOT=concept    SLOT#number    SLOT~literal text
+# The same frame renders in each listener's language (language spec §10.1).
+REPORT_FIRE_AT	LOCATION=north_gate	hi	उत्तर द्वार पर आग
+REPORT_FIRE_AT	LOCATION=north_gate	ta	வடக்கு வாசலில் தீ
+REPORT_FIRE_AT	LOCATION=north_gate	en	Fire at the north gate
+REQUEST_MEDICAL_AT	OBJECT=ambulance; LOCATION=hospital	hi	अस्पताल में एम्बुलेंस भेजो
+REQUEST_MEDICAL_AT	OBJECT=ambulance; LOCATION=hospital	ta	மருத்துவமனையில் ஆம்புலன்ஸ் அனுப்புங்க
+REQUEST_MEDICAL_AT	OBJECT=ambulance; LOCATION=hospital	en	Send an ambulance to the hospital
+REQUEST_SUPPLY_AT	OBJECT=blanket; LOCATION=relief_camp	hi	राहत शिविर में कंबल भेजो
+REQUEST_SUPPLY_AT	OBJECT=blanket; LOCATION=relief_camp	ta	நிவாரண முகாமில் போர்வை அனுப்புங்க
+REQUEST_SUPPLY_AT	OBJECT=blanket; LOCATION=relief_camp	en	Send blankets to the relief camp
+REPORT_CASUALTY_COUNT	QUANTITY#3	hi	3 घायल
+REPORT_CASUALTY_COUNT	QUANTITY#3	ta	3 பேர் காயம்
+REPORT_CASUALTY_COUNT	QUANTITY#3	en	3 injured
+ANSWER_COUNT	QUANTITY#42	hi	४२
+ANSWER_COUNT	QUANTITY#42	ta	௪௨
+ANSWER_COUNT	QUANTITY#42	en	42
+REQUEST_MOVE	ACTOR=police	hi	पुलिस हटो
+REQUEST_MOVE	ACTOR=police	ta	போலீஸ் நகர்
+REQUEST_MOVE	ACTOR=police	en	Police move
+REPORT_STATE	STATE=trapped	hi	फंसे
+REPORT_STATE	STATE=trapped	ta	சிக்கியுள்ளனர்
+REPORT_STATE	STATE=trapped	en	trapped
+REQUEST_MOVE	ACTOR~रमेश	ta	रमेश நகர்
+REQUEST_MOVE_AWAY	ACTOR=police	hi	पुलिस दूर हटो
+REQUEST_MOVE_AWAY	ACTOR=police	ta	போலீஸ் விலகிச் செல்
+REQUEST_MOVE_AWAY	ACTOR=police	en	Police move away
+REQUEST_HELP	OBJECT=help	hi	मदद तुरंत भेजो
+REQUEST_HELP	OBJECT=help	ta	உதவி உடனே அனுப்புங்க
+REQUEST_HELP	OBJECT=help	en	Send help immediately
+REQUEST_CALL	ACTOR=police	hi	पुलिस को बुलाओ
+REQUEST_CALL	ACTOR=police	ta	போலீஸ் அழையுங்க
+REQUEST_CALL	ACTOR=police	en	Call the Police
+REQUEST_GENERIC	OBJECT=medical_assistance	hi	चिकित्सा सहायता भेजो
+REQUEST_GENERIC	OBJECT=medical_assistance	ta	மருத்துவ உதவி அனுப்புங்க
+REQUEST_GENERIC	OBJECT=medical_assistance	en	Send medical assistance

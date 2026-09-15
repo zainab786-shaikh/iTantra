@@ -1,0 +1,6 @@
+{
+  "digit_sets": ["०१२३४५६७८९"],
+  "strip_codepoints": [],
+  "clause_punctuation": [".", ",", "!", "?", ";", "।", "॥"],
+  "clause_conjunctions": ["और", "फिर", "and"]
+}

@@ -1,80 +1,85 @@
 package com.itantra.app.packet
 
-import com.itantra.app.codec.CodecMode
-
 /**
- * Direct port of PacketPriority in src/core/types.ts. Priority band
- * carried on the wire. Higher bands may pre-empt lower ones downstream
- * (see tts/TtsQueue, Phase 8).
+ * Message priority. **Two states, and only two.**
  *
- * The string value matches the TS union's literal exactly, so anything
- * that needs the wire-format string (logging, future serialization) gets
- * the same text the RN app used, not an enum name that happens to look
- * similar.
+ * `HIGH` and `MEDIUM` used to exist here and no longer do. Four specifications
+ * say the same thing in nearly the same words — `packet-security-transport-spec.md`
+ * §11, `receiver-pipeline-spec.md` §7.4, `language-layer-spec.md` §11.2 and
+ * `tier-1-2-spec.md` register #22:
+ *
+ * > `HIGH` does not exist — not on the wire, not in the API, not in the UI.
+ *
+ * The wire field is one bit (`packet §3.1`), so an enum with four entries could
+ * only ever have encoded two of them. Keeping the other two would have meant the
+ * UI rendering bands that cannot arrive.
+ *
+ * Not to be confused with `rule_priority`, the Tier 1 rule table's
+ * evaluation-order field, which never leaves the sender (`tier §5.4`).
  */
 enum class PacketPriority(val value: String) {
     NORMAL("NORMAL"),
-    MEDIUM("MEDIUM"),
-    HIGH("HIGH"),
     CRITICAL("CRITICAL"),
 }
 
 /**
- * One transmission, as it actually crosses the link.
+ * The outer frame — Kotlin's, and deliberately almost empty.
  *
- * ## The packet carries bytes, not text
+ * ## What this class is now
  *
- * [payload] replaced what used to be a plain `text: String`. That is the
- * central change of this prototype and it is deliberate: the packet is the
- * transmitted representation, so if it also carried the plaintext it claims
- * to have compressed away, every byte count shown on screen would be
- * decoration rather than measurement.
+ * `packet-security-transport-spec.md` §1.1 draws the layering boundary:
  *
- * The plaintext still exists — it simply lives where it honestly belongs:
+ * ```
+ * KOTLIN   ITantraPacket outer frame          this class
+ *            contains
+ * C++      native payload                     authoritative for everything
+ *            carried by                       the decoder needs
+ * KOTLIN   UdpTransport / ThrottledTransport  unchanged
+ * ```
  *
- * - on the sending side, in `core.LogEntry.text`, because the transmitter
- *   knows what was said;
- * - on the receiving side, in `receiver.ReceivedMessage.text`, produced by
- *   decoding this payload and nothing else.
+ * ## Why four fields left
  *
- * ## [mode] is authoritative
+ * §1.3 is explicit: the native payload is authoritative for `tier`,
+ * `symbol_count`, `seq`, `hash_present`, `priority`, `negation`, `language` and
+ * `context_hash`, and the outer frame "must **not** carry copies of these".
+ * So `language`, `mode` and `priority` are gone from here, and `text` was
+ * already gone.
  *
- * The decoder cannot start until it knows how the payload was encoded, so
- * the mode lives here, in the header, and is never repeated inside the
- * payload.
+ * `originalBytes` went with them. §1.3 does not name it, but it is a derived
+ * sender-side fact and §1.3's own rationale applies to it unchanged —
+ * transmitting the same fact twice wastes bytes on packets measured in single
+ * digits. It is still measured; it just stays on the sender, in [BuiltPacket],
+ * where M-01 and the airtime race read it.
  *
- * ## [language] is the sender's
+ * What remains is exactly what §1.3 permits: `id` and `senderId` for dedup and
+ * logging, and a receive timestamp assigned locally.
  *
- * Unchanged in meaning. For RAW it is what selects the receiver's TTS voice;
- * for PACK7 the payload's own langId serves that purpose; for PHRASE neither
- * is used on playback, because the receiver renders the phrase in its own
- * language. The codec returns which language applies, so no call site has to
- * work this out (see `codec.DecodedText`).
+ * ## [localTimestamp] is never transmitted
+ *
+ * Renamed from `timestamp` so the name states the contract. §1.3 calls it "a
+ * locally-assigned receive timestamp that is never transmitted", and §9 warns
+ * that "at these payload sizes an eight-byte timestamp would dominate
+ * everything this document optimises". [PacketCodec] does not serialise it.
  */
 class ITantraPacket(
     /** Unique per sender. Locally a UUID; reconstructed as `NODE-SEQ` on arrival. */
     val id: String,
     /** Device/User unique ID, for display. */
     val senderId: String,
-    val timestamp: Long,
-    /** The SENDER's language. */
-    val language: String,
-    /** The encoded utterance. Mode-specific; see `codec.ITantraCodec`. */
-    val payload: ByteArray,
-    val mode: CodecMode,
-    /** UTF-8 size of the source text, so the receiver can show what was saved. */
-    val originalBytes: Int,
-    val priority: PacketPriority,
-) {
     /**
-     * True when the payload is genuinely smaller than the source text.
-     *
-     * Previously a hand-set flag that the codebase documented as never
-     * actually being set. It is now derived from what the codec really did,
-     * so it can no longer disagree with the payload.
+     * Assigned locally — on send, when built; on receive, when the datagram
+     * arrived. **Never crosses the link.** See the class doc.
      */
-    val isCompressed: Boolean get() = mode != CodecMode.RAW
-
+    val localTimestamp: Long,
+    /**
+     * The native payload: `[ metadata ][ symbols ][ flush ][ pad ][ AEAD tag ]`.
+     *
+     * Opaque to this layer by design (`packet §1.1`). Nothing in Kotlin may
+     * parse it — doing so would recreate the second source of truth §1.3
+     * removes.
+     */
+    val payload: ByteArray,
+) {
     /**
      * Content-based, unlike the array identity a `data class` would have
      * generated. Nothing today compares packets — the receiver dedups by
@@ -86,27 +91,18 @@ class ITantraPacket(
         if (other !is ITantraPacket) return false
         return id == other.id &&
             senderId == other.senderId &&
-            timestamp == other.timestamp &&
-            language == other.language &&
-            payload.contentEquals(other.payload) &&
-            mode == other.mode &&
-            originalBytes == other.originalBytes &&
-            priority == other.priority
+            localTimestamp == other.localTimestamp &&
+            payload.contentEquals(other.payload)
     }
 
     override fun hashCode(): Int {
         var result = id.hashCode()
         result = 31 * result + senderId.hashCode()
-        result = 31 * result + timestamp.hashCode()
-        result = 31 * result + language.hashCode()
+        result = 31 * result + localTimestamp.hashCode()
         result = 31 * result + payload.contentHashCode()
-        result = 31 * result + mode.hashCode()
-        result = 31 * result + originalBytes
-        result = 31 * result + priority.hashCode()
         return result
     }
 
     override fun toString(): String =
-        "ITantraPacket($id, $senderId, $language, ${mode.name}, " +
-            "$originalBytes B -> ${payload.size} B, ${priority.value})"
+        "ITantraPacket($id, $senderId, ${payload.size} B)"
 }

@@ -122,6 +122,29 @@ class UdpTransport(
     private val connectionListeners = mutableSetOf<(Boolean) -> Unit>()
     private val receiveListeners = mutableSetOf<(ITantraPacket) -> Unit>()
 
+    /**
+     * Phase 12 pairing: this phone's HELLO nonce (`packet §6.7`), carried in every
+     * keepalive so the peer derives the same session key. Null: none announced.
+     */
+    @Volatile var sessionNonce: ByteArray? = null
+    /** C-34: this phone's compatibility descriptor, announced after the nonce. */
+    @Volatile var compatibility: IntArray? = null
+    private val helloListeners = mutableSetOf<(Short, String?, ByteArray?, IntArray?) -> Unit>()
+
+    /** This phone's node id; the HELLO role is decided by comparing it with the peer's. */
+    val nodeId: Short get() = selfNodeId
+
+    /** HELLO frames from the peer: node id, announced language, session nonce and compatibility descriptor (if any). */
+    fun onHello(listener: (Short, String?, ByteArray?, IntArray?) -> Unit): () -> Unit {
+        helloListeners.add(listener)
+        return { helloListeners.remove(listener) }
+    }
+
+    /** Send a HELLO now rather than at the next keepalive tick. */
+    fun announceNow() {
+        scope.launch { sendHello() }
+    }
+
     private val _localAddress = MutableStateFlow("resolving…")
     override val localAddress: StateFlow<String> = _localAddress.asStateFlow()
 
@@ -175,7 +198,7 @@ class UdpTransport(
             if (active == null) return@withContext false
             try {
                 active.send(DatagramPacket(frame, frame.size, target))
-                Log.d(TAG, "-> ${packet.priority.value} ${packet.language} ${frame.size} B to $target")
+                Log.d(TAG, "-> ${frame.size} B to $target (${packet.id})")
                 true
             } catch (e: Exception) {
                 // Reported honestly rather than swallowed: the transmitter's
@@ -359,13 +382,18 @@ class UdpTransport(
 
         when (frame) {
             is PacketCodec.Frame.Hello -> {
+                for (listener in helloListeners.toList()) listener(frame.nodeId, frame.languageCode, frame.sessionNonce, frame.compatibility)
                 // Liveness only. Deliberately not surfaced to the app: a
                 // keepalive is not a message and must never reach the receive
                 // log or the speech queue.
-                Log.d(TAG, "<- HELLO ${DeviceId.nodeLabel(frame.nodeId)} from $from")
+                Log.d(
+                    TAG,
+                    "<- HELLO ${DeviceId.nodeLabel(frame.nodeId)} " +
+                        "lang=${frame.languageCode ?: "?"} from $from",
+                )
             }
             is PacketCodec.Frame.Data -> {
-                Log.d(TAG, "<- ${frame.packet.priority.value} ${frame.packet.language} $length B from $from")
+                Log.d(TAG, "<- $length B from $from (${frame.packet.id})")
                 for (listener in receiveListeners.toList()) listener(frame.packet)
             }
         }
@@ -418,7 +446,7 @@ class UdpTransport(
     private suspend fun sendHello() {
         val target = currentTarget() ?: return
         val active = socket ?: openSocket() ?: return
-        val frame = PacketCodec.serializeHello(selfNodeId, announcedLanguage)
+        val frame = PacketCodec.serializeHello(selfNodeId, announcedLanguage, sessionNonce, compatibility)
         try {
             withContext(Dispatchers.IO) {
                 active.send(DatagramPacket(frame, frame.size, target))

@@ -1,10 +1,7 @@
 package com.itantra.app.transport
 
-import com.itantra.app.codec.CodecMode
-import com.itantra.app.codec.ITantraCodec
 import com.itantra.app.config.LANGUAGES
 import com.itantra.app.packet.ITantraPacket
-import com.itantra.app.packet.PacketPriority
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -13,36 +10,39 @@ import org.junit.Test
 
 /**
  * The frame is what actually crosses the link, so a mistake here is not a
- * degraded result — it is text in the wrong script, spoken in the wrong
- * voice, or a link that silently carries nothing.
+ * degraded result — it is a link that silently carries nothing.
+ *
+ * ## What Phase 0 changed here
+ *
+ * The header lost `mode`, `priority`, `language` and `originalBytes`
+ * (`packet §1.3`), so every test that round-tripped one of those is either
+ * deleted or inverted into a check that it is **not** on the wire.
+ *
+ * Two deletions worth naming, because they are not oversights:
+ *
+ * - *"every priority band survives the round trip"* — priority is now a 1-bit
+ *   field inside the native payload. Its replacement is **C-26** (Phase 11).
+ * - *"a compressed payload survives the wire and still decodes"* — this layer
+ *   no longer decodes anything; the payload is opaque to Kotlin
+ *   (`packet §1.1`). Its replacements are **C-05** and **C-06** (Phase 7).
  */
 class PacketCodecTest {
 
     private val nodeId: Short = 0x3F1A
-    private val codec = ITantraCodec()
 
-    /** Builds a frame-ready packet the same way PacketFactory does. */
-    private fun packet(
-        text: String,
-        language: String = "en-IN",
-        priority: PacketPriority = PacketPriority.NORMAL,
-    ): ITantraPacket {
-        val encoded = codec.encode(text, language)
-        return ITantraPacket(
-            id = "local-id",
-            senderId = "ITX-ABCDEF12",
-            timestamp = 1_700_000_000_000L,
-            language = language,
-            payload = encoded.bytes,
-            mode = encoded.mode,
-            originalBytes = encoded.originalBytes,
-            priority = priority,
-        )
-    }
+    /**
+     * Builds a frame-ready packet. [payload] stands in for the native payload
+     * and is deliberately opaque — this layer must not know what is in it.
+     */
+    private fun packet(payload: ByteArray): ITantraPacket = ITantraPacket(
+        id = "local-id",
+        senderId = "ITX-ABCDEF12",
+        localTimestamp = 1_700_000_000_000L,
+        payload = payload,
+    )
 
-    /** What the far end would render for a received packet. */
-    private fun textOf(p: ITantraPacket, receiverLanguage: String = "en-IN"): String =
-        codec.decode(p.mode, p.payload, p.language, receiverLanguage).text
+    private fun packet(size: Int): ITantraPacket =
+        packet(ByteArray(size) { (it * 31 + 7).toByte() })
 
     private fun roundTrip(source: ITantraPacket, seq: Int = 7): ITantraPacket {
         val frame = PacketCodec.serialize(source, nodeId, seq)
@@ -52,94 +52,139 @@ class PacketCodecTest {
         return (decoded as PacketCodec.Frame.Data).packet
     }
 
+    // -----------------------------------------------------------------------
+    // Layout
+    // -----------------------------------------------------------------------
+
     @Test
-    fun `header is exactly 11 bytes`() {
-        val p = packet("hi")
+    fun `header is exactly 8 bytes`() {
+        // Was 11. The three bytes are `mode`, `priority | langId` and
+        // `originalBytes` leaving the wire (packet §1.3). On a ~11 B native
+        // payload that is not a rounding error, and it is the figure M-04 and
+        // M-33 are measured against.
+        val p = packet(3)
         val frame = PacketCodec.serialize(p, nodeId, 0)!!
+        assertEquals(8, PacketCodec.HEADER_BYTES)
         assertEquals(PacketCodec.HEADER_BYTES + p.payload.size, frame.size)
-        assertEquals(11, PacketCodec.HEADER_BYTES)
     }
 
     @Test
-    fun `payload and mode survive the round trip`() {
-        val sent = packet("requesting backup at checkpoint three")
+    fun `the payload survives the round trip byte for byte`() {
+        // The only thing the data frame carries, and it crosses opaquely.
+        val sent = packet(byteArrayOf(0x00, 0x7F, -0x80, -0x01, 0x2A))
         val received = roundTrip(sent)
         assertTrue(sent.payload.contentEquals(received.payload))
-        assertEquals(sent.mode, received.mode)
-        assertEquals(sent.originalBytes, received.originalBytes)
-        assertEquals("requesting backup at checkpoint three", textOf(received))
     }
 
     @Test
-    fun `a compressed payload survives the wire and still decodes`() {
-        val text = "उत्तर द्वार पर आग लग गई है तुरंत मदद भेजो"
-        val sent = packet(text, language = "hi-IN")
-        assertEquals(CodecMode.PACK7, sent.mode)
-
-        val received = roundTrip(sent)
-        assertEquals(CodecMode.PACK7, received.mode)
-        assertEquals(text, textOf(received, receiverLanguage = "hi-IN"))
-        assertTrue("payload should be smaller than the source",
-            received.payload.size < received.originalBytes)
-    }
-
-    @Test
-    fun `every language survives the round trip in its own script`() {
-        // Indic text is where a byte-level mistake shows up as mojibake rather
-        // than as an obvious failure, so each language gets a real sample.
-        val samples = mapOf(
-            "en-IN" to "fire at north gate",
-            "hi-IN" to "उत्तर द्वार पर आग लग गई है",
-            "mr-IN" to "उत्तर दरवाजाला आग लागली आहे",
-            "gu-IN" to "ઉત્તર દરવાજા પર આગ લાગી છે",
-            "kn-IN" to "ಉತ್ತರ ದ್ವಾರದಲ್ಲಿ ಬೆಂಕಿ",
-            "ml-IN" to "വടക്കേ ഗേറ്റിൽ തീ",
-            "ta-IN" to "வடக்கு வாசலில் தீ",
-            "te-IN" to "ఉత్తర ద్వారం వద్ద మంటలు",
-            "or-IN" to "ଉତ୍ତର ଦ୍ୱାରରେ ନିଆଁ",
-            "bn-IN" to "উত্তর গেটে আগুন",
-        )
-        assertEquals("every registered language needs a sample", LANGUAGES.size, samples.size)
-
-        for ((code, text) in samples) {
-            val received = roundTrip(packet(text, language = code))
-            assertEquals("text for $code", text, textOf(received, receiverLanguage = code))
-            assertEquals("language for $code", code, received.language)
-        }
-    }
-
-    @Test
-    fun `every priority band survives the round trip`() {
-        for (priority in PacketPriority.entries) {
-            assertEquals(priority, roundTrip(packet("status", priority = priority)).priority)
-        }
+    fun `an empty payload round trips and is still a data frame`() {
+        val received = roundTrip(packet(0))
+        assertEquals(0, received.payload.size)
     }
 
     @Test
     fun `sender identity and sequence become the packet id`() {
-        val decoded = roundTrip(packet("report"), seq = 0x0042)
+        val decoded = roundTrip(packet(2), seq = 0x0042)
         assertEquals("3F1A-0042", decoded.id)
         assertEquals("NODE-3F1A", decoded.senderId)
     }
 
     @Test
+    fun `sequence wraps within its 16 bits instead of corrupting the header`() {
+        assertEquals("3F1A-0005", roundTrip(packet(2), seq = 0x1_0005).id)
+    }
+
+    @Test
+    fun `node id can be read without decoding the whole frame`() {
+        val frame = PacketCodec.serialize(packet(1), nodeId, 1)!!
+        assertEquals(nodeId, PacketCodec.peekNodeId(frame, frame.size))
+    }
+
+    // -----------------------------------------------------------------------
+    // packet §1.3 — no duplicated fields
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `the frame carries no tier, priority, language or source size`() {
+        // The structural half of §1.3: there is nowhere on the received packet
+        // for a duplicate to live, so it cannot disagree with the payload.
+        val fields = ITantraPacket::class.java.declaredFields.map { it.name }.toSet()
+        for (forbidden in listOf("mode", "tier", "priority", "language", "originalBytes")) {
+            assertTrue(
+                "the outer frame must not carry '$forbidden' (packet §1.3)",
+                forbidden !in fields,
+            )
+        }
+    }
+
+    @Test
+    fun `two packets differing only in payload produce frames differing only in payload`() {
+        // The header is a pure function of (nodeId, seq, payloadLen). Nothing
+        // about the message's meaning leaks into it — which is also what
+        // `packet §6.2` wants once the payload is encrypted: an observer must
+        // not be able to read priority or language off the outside.
+        val a = PacketCodec.serialize(packet(byteArrayOf(1, 2, 3)), nodeId, 9)!!
+        val b = PacketCodec.serialize(packet(byteArrayOf(9, 8, 7)), nodeId, 9)!!
+        assertEquals(a.size, b.size)
+        for (i in 0 until PacketCodec.HEADER_BYTES) {
+            assertEquals("header byte $i must not depend on payload content", a[i], b[i])
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // HELLO
+    // -----------------------------------------------------------------------
+
+    @Test
     fun `hello frames are recognised and carry no message`() {
         val frame = PacketCodec.serializeHello(nodeId, "hi-IN")
-        assertEquals(PacketCodec.HEADER_BYTES, frame.size)
         val decoded = PacketCodec.deserialize(frame, frame.size)
         assertTrue("hello must not decode as data", decoded is PacketCodec.Frame.Hello)
         assertEquals(nodeId, (decoded as PacketCodec.Frame.Hello).nodeId)
     }
 
     @Test
-    fun `node id can be read without decoding the whole frame`() {
-        val frame = PacketCodec.serialize(packet("x"), nodeId, 1)!!
-        assertEquals(nodeId, PacketCodec.peekNodeId(frame, frame.size))
+    fun `hello announces the language for every registered language`() {
+        // A keepalive is not a message, so §1.3 does not apply to it — and the
+        // announcement is required: tier §11.3 and receiver §8.3 both depend on
+        // the sender learning the receiver's language from HELLO, which is what
+        // decides the cross-language context rule (C-35).
+        for (language in LANGUAGES) {
+            val frame = PacketCodec.serializeHello(nodeId, language.code)
+            val decoded = PacketCodec.deserialize(frame, frame.size)
+            assertTrue(decoded is PacketCodec.Frame.Hello)
+            assertEquals(
+                "language for ${language.code}",
+                language.code,
+                (decoded as PacketCodec.Frame.Hello).languageCode,
+            )
+        }
     }
 
     @Test
+    fun `a language id this build does not know is reported as unknown, not guessed`() {
+        val frame = PacketCodec.serializeHello(nodeId, "en-IN")
+        frame[PacketCodec.HEADER_BYTES] = 63
+        val decoded = PacketCodec.deserialize(frame, frame.size)
+        assertTrue(decoded is PacketCodec.Frame.Hello)
+        assertNull((decoded as PacketCodec.Frame.Hello).languageCode)
+    }
+
+    @Test
+    fun `hello is not mistaken for a zero length message`() {
+        val hello = PacketCodec.serializeHello(nodeId, "en-IN")
+        val empty = PacketCodec.serialize(packet(0), nodeId, 0)!!
+        assertTrue(PacketCodec.deserialize(hello, hello.size) is PacketCodec.Frame.Hello)
+        assertTrue(PacketCodec.deserialize(empty, empty.size) is PacketCodec.Frame.Data)
+    }
+
+    // -----------------------------------------------------------------------
+    // Rejection
+    // -----------------------------------------------------------------------
+
+    @Test
     fun `foreign and malformed traffic is rejected rather than guessed at`() {
-        val good = PacketCodec.serialize(packet("area clear"), nodeId, 3)!!
+        val good = PacketCodec.serialize(packet(6), nodeId, 3)!!
 
         assertNull("empty datagram", PacketCodec.deserialize(ByteArray(0), 0))
         assertNull("shorter than a header", PacketCodec.deserialize(good, 4))
@@ -156,18 +201,11 @@ class PacketCodecTest {
             PacketCodec.deserialize(good, good.size - 1),
         )
         assertNull(
-            // A newer build's compression mode must be dropped, not misread
-            // as RAW and rendered as mojibake.
-            "a mode this build does not know",
+            // A newer build's frame kind must be dropped, not misread as data
+            // and handed to the native parser as a payload it never wrote.
+            "a frame kind this build does not know",
             PacketCodec.deserialize(
                 good.copyOf().also { it[1] = ((it[1].toInt() and 0xF0) or 7).toByte() },
-                good.size,
-            ),
-        )
-        assertNull(
-            "language id this build does not know",
-            PacketCodec.deserialize(
-                good.copyOf().also { it[2] = ((it[2].toInt() and 0xC0) or 63).toByte() },
                 good.size,
             ),
         )
@@ -175,21 +213,6 @@ class PacketCodecTest {
 
     @Test
     fun `an oversized message is refused rather than truncated`() {
-        val huge = packet("x".repeat(PacketCodec.MAX_FRAME_BYTES + 1))
-        assertNull(PacketCodec.serialize(huge, nodeId, 0))
-    }
-
-    @Test
-    fun `hello is not mistaken for a zero length message`() {
-        val hello = PacketCodec.serializeHello(nodeId, "en-IN")
-        val empty = PacketCodec.serialize(packet(""), nodeId, 0)!!
-        assertTrue(PacketCodec.deserialize(hello, hello.size) is PacketCodec.Frame.Hello)
-        assertTrue(PacketCodec.deserialize(empty, empty.size) is PacketCodec.Frame.Data)
-    }
-
-    @Test
-    fun `sequence wraps within its 16 bits instead of corrupting the header`() {
-        val decoded = roundTrip(packet("wrap"), seq = 0x1_0005)
-        assertEquals("3F1A-0005", decoded.id)
+        assertNull(PacketCodec.serialize(packet(PacketCodec.MAX_FRAME_BYTES + 1), nodeId, 0))
     }
 }

@@ -1,0 +1,3 @@
+# slot	pattern	a	b	c	min	max
+TIME	{N} மணி	60	0	0	1	1440
+QUANTITY	{N}	1	0	0	1	65535

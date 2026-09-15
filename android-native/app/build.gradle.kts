@@ -4,11 +4,22 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// ITANTRA_DISABLE_AEAD (packet §6.10.2): a debug-only diagnostic for C-01, never a
+// staging switch. -Pitantra.disableAead=true passes it to CMake; in a release build
+// crypto/aead.h turns it into a compile error (contract C-43).
+val itantraDisableAead = providers.gradleProperty("itantra.disableAead").map { it.toBoolean() }.getOrElse(false)
+
 android {
     namespace = "com.itantra.app"
     // Matches the frozen RN baseline recorded in MIGRATION_STATUS.md (Phase 0):
     // minSdk 24, targetSdk 34, compileSdk 36. Not chosen independently.
     compileSdk = 36
+
+    // Pinned, not left to AGP's default. The golden vectors frozen in Phase 3
+    // are a contract against a specific toolchain (validation-benchmark-contract
+    // §2.2, §7.2): an unpinned NDK makes that freeze unreproducible on another
+    // machine, and C-01 exists to prove two builds agree on bytes.
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.itantra.app"
@@ -16,6 +27,26 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                cppFlags("-std=c++17 -frtti -fexceptions")
+                arguments("-DANDROID_STL=c++_shared")
+                if (itantraDisableAead) arguments("-DITANTRA_DISABLE_AEAD=ON")
+            }
+        }
+        ndk {
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64"))
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {
@@ -158,6 +189,49 @@ tasks.matching { it.name == "preBuild" }.configureEach {
     dependsOn(extractSherpaOnnxNative, extractSherpaOnnxClasses, extractOnnxruntimeNative, extractOnnxruntimeClasses)
 }
 
+// ---------------------------------------------------------------------------
+// Packs and tables for the native engine (implementation plan Phase 11).
+//
+// libitantra-native.so needs compiled packs: common/, tier2/, sender/ and one
+// lang/<code>/ per language (NativeBridge.PACK_ASSET_ROOT). The only packs that
+// exist are the SYNTHETIC FIXTURE packs (hi, ta, en) that itantra-packc compiles
+// into the host build tree (language spec "synthetic fixtures first"); real
+// corpus-derived packs replace them with no code change. Pack binaries are never
+// committed, so the host build must have produced them first:
+//
+//   cmake --build native/build --target itantra-fixtures
+// ---------------------------------------------------------------------------
+abstract class CopyItantraPacks : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val packs: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val output: DirectoryProperty
+
+    @get:javax.inject.Inject
+    abstract val fileOperations: FileSystemOperations
+
+    @TaskAction
+    fun copy() {
+        fileOperations.sync {
+            from(packs) { include("common/**", "lang/**", "tier2/**", "sender/**") }
+            into(output.dir("itantra/packs"))
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val copyPacks = tasks.register<CopyItantraPacks>(
+            "copy${variant.name.replaceFirstChar { it.uppercase() }}ItantraPacks"
+        ) {
+            packs.set(layout.projectDirectory.dir("../../native/build/fixtures/synthetic"))
+        }
+        variant.sources.assets?.addGeneratedSourceDirectory(copyPacks, CopyItantraPacks::output)
+    }
+}
+
 dependencies {
     // Pinned below the newest releases deliberately: the latest core-ktx/
     // compose-bom lines now require compileSdk 37 + AGP 9.1.0+, and this
@@ -190,6 +264,12 @@ dependencies {
     // These guard the two claims the demo makes out loud - lossless, and
     // smaller - and run without a device.
     testImplementation("junit:junit:4.13.2")
+
+    // [D] Phase 11 tests on the device, through the real JNI boundary
+    // (src/androidTest): C-25, C-26, the one-call-per-clause boundary, and the
+    // single-device loopback through the app's own view models.
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 
     sherpaOnnxAar("com.xdcobra.sherpa:sherpa-onnx:$sherpaOnnxVersion@aar")
     onnxruntimeAar("com.xdcobra.sherpa:onnxruntime:$onnxruntimeVersion@aar")

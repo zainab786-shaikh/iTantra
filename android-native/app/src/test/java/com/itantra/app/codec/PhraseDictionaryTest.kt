@@ -87,10 +87,16 @@ class PhraseDictionaryTest {
     fun `the table covers every priority band`() {
         // A demo that cannot produce a CRITICAL cannot show the priority
         // interrupt, and one that is all CRITICAL shows nothing either.
+        //
+        // Two bands, not four: MEDIUM and HIGH were removed in Phase 0 because
+        // they do not exist on the wire, in the API or in the UI (packet §11,
+        // receiver §7.4, language §11.2). The property this test protects is
+        // unchanged — the phrase table must still exercise both ends of the
+        // range it can actually produce.
         val bands = PhraseDictionary.ids
             .map { classifyPriority(PhraseDictionary.surfaceFor(it, "en-IN")!!) }
             .toSet()
-        assertEquals("expected all four bands represented", 4, bands.size)
+        assertEquals("expected both bands represented", 2, bands.size)
     }
 
     @Test

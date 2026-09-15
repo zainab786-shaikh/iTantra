@@ -1,0 +1,61 @@
+# surface	concept	form_class	origin
+வடக்கு வாசல்	north_gate	base	native
+வடக்கு வாசலில்	north_gate	inflected	native
+வடக்கு வாசலுக்கு	north_gate	inflected	native
+north gate	north_gate	base	loanword
+தெற்கு வாசல்	south_gate	base	native
+தெற்கு வாசலில்	south_gate	inflected	native
+south gate	south_gate	base	loanword
+மருத்துவமனை	hospital	base	native
+மருத்துவமனையில்	hospital	inflected	native
+hospital	hospital	base	loanword
+பாலம்	bridge	base	native
+பாலத்தில்	bridge	inflected	native
+சந்தை	market	base	native
+சந்தையில்	market	inflected	native
+நதி	river	base	native
+நதியில்	river	inflected	native
+பள்ளி	school	base	native
+பள்ளியில்	school	inflected	native
+நிவாரண முகாம்	relief_camp	base	native
+நிவாரண முகாமில்	relief_camp	inflected	native
+ஆம்புலன்ஸ்	ambulance	base	loanword
+ambulance	ambulance	base	loanword
+தண்ணீர்	water	base	native
+உணவு	food	base	native
+மருந்து	medicine	base	native
+ஆக்சிஜன்	oxygen	base	loanword
+oxygen	oxygen	base	loanword
+தீயணைப்பு வண்டி	fire_brigade	base	native
+படகு	boat	base	native
+போர்வை	blanket	base	native
+போலீஸ்	police	base	loanword
+police	police	base	loanword
+டாக்டர்	doctor	base	loanword
+doctor	doctor	base	loanword
+மீட்புக் குழு	rescue_team	base	native
+ராணுவம்	army	base	native
+தீ	fire	base	native
+வெள்ளம்	flood	base	native
+அனுப்புங்க	send	base	native
+அனுப்புங்கள்	send	inflected	native
+நிறுத்து	stop	base	native
+நகர்	move	base	native
+காயம்	injured	base	native
+காயமடைந்தவர்கள்	injured	inflected	native
+அடைப்பு	blocked	base	native
+பாதுகாப்பாக	safe	base	native
+சிக்கியுள்ளனர்	trapped	base	native
+கடுமையான	critical	base	native
+சிறிய	minor	base	native
+அவசரம்	urgent	base	native
+urgent	urgent	base	loanword
+எத்தனை	query_count	base	native
+அனுப்ப	send	inflected	native
+காலி செய்யுங்க	evacuate	base	native
+இடிந்தது	collapse	base	native
+உதவி	help	base	native
+மருத்துவ உதவி	medical_assistance	base	native
+விலகிச் செல்	move_away	base	native
+அழையுங்க	call	base	native
+ஆபத்தானது	dangerous	base	native

@@ -11,21 +11,23 @@ import com.itantra.app.config.SttModelDescriptor
 import com.itantra.app.config.VadConfig
 import com.itantra.app.config.findLanguage
 import com.itantra.app.config.resolveModelForLanguage
-import com.itantra.app.codec.ITantraCodec
 import com.itantra.app.core.INITIAL_TRANSCRIPTION_STATE
 import com.itantra.app.core.LogEntry
 import com.itantra.app.core.TranscriptionResult
 import com.itantra.app.core.TranscriptionState
 import com.itantra.app.core.TransmitterStatus
 import com.itantra.app.device.DeviceId
-import com.itantra.app.packet.PacketPriority
-import com.itantra.app.packet.buildPacket
+import com.itantra.app.native.NativeBridge
+import com.itantra.app.native.NativeEngine
+import com.itantra.app.packet.NativeSend
+import com.itantra.app.packet.buildNativePackets
 import com.itantra.app.stt.NonSpeechFilter
 import com.itantra.app.stt.SttEngineKind
 import com.itantra.app.stt.SttEngineProvider
 import com.itantra.app.stt.SttModelManager
 import com.itantra.app.stt.SttModelStatus
 import com.itantra.app.stt.checkSttModelStatus
+import com.itantra.app.transport.ThrottleControl
 import com.itantra.app.transport.Transport
 import com.itantra.app.vad.AudioSegment
 import com.itantra.app.vad.EnergyVad
@@ -42,6 +44,23 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 private const val TAG = "TransmitterViewModel"
+
+/** The confidence passed for text from the real installed decoder: the per-mille ceiling of the pack thresholds. */
+internal const val STT_DECODER_CONFIDENCE = 1000L
+
+/**
+ * STT confidence handed to tier selection (`tier §5.8`, C-25).
+ *
+ * The recogniser (sherpa-onnx offline CTC) returns no score, so there is nothing
+ * to compare with the pack threshold. Passing CONFIDENCE_UNAVAILABLE for every
+ * utterance made Tier 1 — and with it cross-language (mother-tongue) delivery —
+ * unreachable from live speech. Text from the real installed decoder is
+ * therefore passed as meeting the bar, and Tier 1 stays gated by the read-back
+ * check (R1 coverage, R2, similarity bar). The placeholder backend, which
+ * recognises nothing, stays CONFIDENCE_UNAVAILABLE and can never select Tier 1.
+ */
+internal fun sttConfidenceFor(kind: SttEngineKind): Long =
+    if (kind == SttEngineKind.SHERPA_ONNX) STT_DECODER_CONFIDENCE else NativeBridge.CONFIDENCE_UNAVAILABLE
 
 /**
  * Direct port of src/hooks/useTransmitterController.ts's state and
@@ -63,6 +82,14 @@ private const val TAG = "TransmitterViewModel"
 class TransmitterViewModel(
     context: Context,
     private val transport: Transport,
+    /** The native payload producer (Phase 11). Null only if the library or its packs failed to load. */
+    private val engine: NativeEngine?,
+    /**
+     * The listener's language. The sender decides the cross-language context rule
+     * from it (`tier §11.3`). HELLO carries it in Phase 12; in the single-device
+     * loopback the listener is this phone's own receiver.
+     */
+    private val listenerLanguage: () -> String,
     maxLogEntries: Int = 40,
 ) {
     val transportName: String = transport.name
@@ -73,7 +100,6 @@ class TransmitterViewModel(
 
     private val vad = EnergyVad()
     /** Text -> bytes. Owned here because encoding is part of packaging an utterance. */
-    private val codec = ITantraCodec()
     private val sttProvider = SttEngineProvider(modelsRootDir)
     private val sttModelManager = SttModelManager(modelsRootDir)
     private var vadConfig: VadConfig = DEFAULT_VAD_CONFIG.copy(endOfSpeechSilenceMs = DEFAULT_VAD_CONFIG.endOfSpeechSilenceMs)
@@ -353,29 +379,15 @@ class TransmitterViewModel(
                 forced = segment.forced,
             )
 
-            val built = buildPacket(
-                text = text,
-                language = languageCode,
-                senderId = _senderId.value,
-                codec = codec,
-                // Null leaves the keyword classifier in charge, which is the
-                // default path. The override can only raise a message to
-                // CRITICAL, never lower one the classifier already flagged.
-                priority = if (_sendAsCritical.value) PacketPriority.CRITICAL else null,
-            )
             val engineKind = sttProvider.status.kind
-            val delivered = transport.sendPacket(built.packet)
 
-            _log.value = (listOf(
-                LogEntry(
-                    packet = built.packet,
-                    text = built.text,
-                    roundTripOk = built.roundTripOk,
-                    delivered = delivered,
-                    latencyMs = latencyMs,
-                    simulated = engineKind == SttEngineKind.SIMULATED,
-                )
-            ) + _log.value).take(maxLog)
+            val send = transmit(
+                text = text,
+                languageCode = languageCode,
+                sttConfidence = sttConfidenceFor(engineKind),
+                latencyMs = latencyMs,
+                simulated = engineKind == SttEngineKind.SIMULATED,
+            )
 
             patch(
                 status = if (isActiveFlag) TransmitterStatus.LISTENING else TransmitterStatus.IDLE,
@@ -384,11 +396,83 @@ class TransmitterViewModel(
                 latencyMs = latencyMs,
                 engine = engineKind,
                 isSpeaking = false,
-                error = null,
+                // `tier §8`: a clause with no payload is never sent in part, and
+                // the operator is told rather than left to assume it went out.
+                error = if (send.refused.isEmpty()) null else send.refused.joinToString(" ") { refusal ->
+                    when (refusal.outcome) {
+                        "ClauseTooLong" -> "Not sent: a clause is too long for one message — say it in shorter parts."
+                        else -> "Not sent: a clause could not be encoded (${refusal.outcome})."
+                    }
+                },
             )
         } catch (e: Exception) {
             patch(status = TransmitterStatus.ERROR, error = e.message ?: e.javaClass.simpleName)
         }
+    }
+
+    /**
+     * Everything after recognition: encode [text] through the native pipeline
+     * and hand each clause's payload to the transport, in clause order.
+     *
+     * This replaces Phase 0's empty payload. [handleSegment] calls it with the
+     * recogniser's text; the device loopback test calls it directly.
+     */
+    internal suspend fun transmit(
+        text: String,
+        languageCode: String,
+        sttConfidence: Long,
+        latencyMs: Long,
+        simulated: Boolean,
+    ): NativeSend {
+        val engine = checkNotNull(engine) {
+            "The native engine did not load, so no payload can be produced (logcat: NativeBridge, AppViewModel)."
+        }
+        check(engine.supports(languageCode)) {
+            "No language pack for ${findLanguage(languageCode).label} yet — packs installed: " +
+                engine.languages.joinToString { it.uppercase() } + "."
+        }
+        val send = buildNativePackets(
+            engine = engine,
+            text = text,
+            language = languageCode,
+            listenerLanguage = listenerLanguage(),
+            senderId = _senderId.value,
+            sttConfidence = sttConfidence,
+            sendAsCritical = _sendAsCritical.value,
+        )
+
+        for (built in send.packets) {
+            val info = built.native
+            Log.i(
+                TAG,
+                "native payload: tier ${info?.tier}, ${built.priority}, ${built.packet.payload.size} B sealed " +
+                    "(${info?.plaintextBytes} B plaintext), counter ${info?.counter}, trigger ${info?.safetyTrigger}",
+            )
+            // The throttle can no longer read the source size off the packet
+            // (`packet §1.3`), so the sender states it. Conditional because
+            // nothing above the transport is supposed to know whether the
+            // throttle decorator is in the chain at all.
+            (transport as? ThrottleControl)?.noteOutbound(built.originalBytes)
+            val delivered = transport.sendPacket(built.packet)
+
+            _log.value = (listOf(
+                LogEntry(
+                    packet = built.packet,
+                    text = built.text,
+                    originalBytes = built.originalBytes,
+                    priority = built.priority,
+                    language = built.language,
+                    delivered = delivered,
+                    latencyMs = latencyMs,
+                    simulated = simulated,
+                    native = info,
+                )
+            ) + _log.value).take(maxLog)
+        }
+        for (refusal in send.refused) {
+            Log.w(TAG, "native: clause of ${refusal.text.length} chars not sent (${refusal.outcome})")
+        }
+        return send
     }
 
     fun dispose() {

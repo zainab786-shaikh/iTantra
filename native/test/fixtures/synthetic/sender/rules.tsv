@@ -1,0 +1,25 @@
+# Tier 1 rule table — SENDER-ONLY (tier §3.4, §5.4). Format in native/src/tier1/rulec/rulec.h.
+# Columns: head	rule_priority	intent	conditions
+# Buckets are keyed by head concept; within a bucket the highest rule_priority is tried first
+# and the first match wins. rule_priority is evaluation order, NOT message priority.
+# Fixture rules only: illustrative, not a codebook decision.
+send	200	CANCEL_REQUEST	NEG_SET
+send	100	REQUEST_MEDICAL_AT	OBJECT IN_CATEGORY MEDICAL; LOCATION PRESENT
+send	90	REQUEST_SUPPLY_AT	OBJECT IN_CATEGORY SUPPLY; LOCATION PRESENT
+send	10	REQUEST_GENERIC	OBJECT PRESENT
+stop	10	REQUEST_STOP	ACTOR PRESENT
+move	10	REQUEST_MOVE	-
+evacuate	10	REQUEST_EVACUATE_AT	LOCATION PRESENT
+fire	10	REPORT_FIRE_AT	-
+flood	10	REPORT_FLOOD_AT	-
+collapse	10	REPORT_COLLAPSE_AT	-
+injured	20	REPORT_CASUALTY_COUNT	QUANTITY PRESENT
+injured	10	REPORT_STATE	-
+blocked	10	REPORT_STATE	-
+safe	10	REPORT_STATE	-
+trapped	10	REPORT_STATE	-
+query_count	10	QUERY_CASUALTY_COUNT	-
+move_away	10	REQUEST_MOVE_AWAY	-
+send	50	REQUEST_HELP	OBJECT EQ help
+dangerous	10	REPORT_DANGER	-
+call	10	REQUEST_CALL	-

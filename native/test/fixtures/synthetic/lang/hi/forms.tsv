@@ -1,0 +1,39 @@
+# concept	form	text
+north_gate	plain	उत्तर द्वार
+north_gate	locative	उत्तर द्वार पर
+south_gate	plain	दक्षिण द्वार
+south_gate	locative	दक्षिण द्वार पर
+hospital	plain	अस्पताल
+hospital	locative	अस्पताल में
+bridge	plain	पुल
+bridge	locative	पुल पर
+market	plain	बाज़ार
+market	locative	बाज़ार में
+river	plain	नदी
+river	locative	नदी पर
+school	plain	स्कूल
+school	locative	स्कूल में
+relief_camp	plain	राहत शिविर
+relief_camp	locative	राहत शिविर में
+ambulance	plain	एम्बुलेंस
+water	plain	पानी
+food	plain	खाना
+medicine	plain	दवा
+oxygen	plain	ऑक्सीजन
+fire_brigade	plain	दमकल
+boat	plain	नाव
+blanket	plain	कंबल
+police	plain	पुलिस
+doctor	plain	डॉक्टर
+rescue_team	plain	बचाव दल
+army	plain	सेना
+injured	plain	घायल
+blocked	plain	बंद
+safe	plain	सुरक्षित
+trapped	plain	फंसे
+critical	plain	गंभीर
+minor	plain	मामूली
+urgent	plain	जल्दी
+help	plain	मदद
+medical_assistance	plain	चिकित्सा सहायता
+dangerous	plain	खतरनाक

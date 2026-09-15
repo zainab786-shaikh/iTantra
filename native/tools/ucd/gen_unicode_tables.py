@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+"""Generate the Unicode tables the language layer normalises with.
+
+language-layer-spec.md §6.1 steps 1, 3, 5, 6 and §6.2 need, for EVERY input
+script, exactly the Unicode-defined data — not a hand-written approximation:
+
+  step 1  NFC        canonical decompositions, canonical combining classes,
+                     primary composites (Full_Composition_Exclusion removed)
+  step 3  whitespace White_Space
+  step 5  case fold  simple case folding (status C and S)
+  step 6  punctuation General_Category Pc Pd Ps Pe Pi Pf Po
+
+Run once per deliberate Unicode version change; the output is committed.
+
+  python gen_unicode_tables.py <ucd-dir> <out-header> <out-nfc-subset>
+
+<ucd-dir> holds the files of https://www.unicode.org/Public/<version>/ucd/ :
+UnicodeData.txt, DerivedNormalizationProps.txt, PropList.txt,
+CaseFolding.txt, NormalizationTest.txt. Their SHA-256 hashes are written into
+the generated header so the provenance of every table is checkable.
+
+Integer data only — the generated header must pass contract C-04.
+"""
+
+import hashlib
+import os
+import sys
+
+VERSION = "16.0.0"
+PUNCTUATION = {"Pc", "Pd", "Ps", "Pe", "Pi", "Pf", "Po"}
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        h.update(f.read())
+    return h.hexdigest().upper()
+
+
+def data_lines(path):
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.split("#", 1)[0].strip()
+            if line:
+                yield line
+
+
+def code_range(field):
+    field = field.strip()
+    if ".." in field:
+        a, b = field.split("..")
+        return range(int(a, 16), int(b, 16) + 1)
+    cp = int(field, 16)
+    return range(cp, cp + 1)
+
+
+def parse_unicode_data(path):
+    decomposition, ccc, punctuation = {}, {}, set()
+    first = None
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            fields = raw.rstrip("\n").split(";")
+            cp, name, gc, cls, dec = int(fields[0], 16), fields[1], fields[2], int(fields[3]), fields[5]
+            if name.endswith(", First>"):
+                first = cp
+                continue
+            span = range(first, cp + 1) if name.endswith(", Last>") else range(cp, cp + 1)
+            first = None
+            for c in span:
+                if gc in PUNCTUATION:
+                    punctuation.add(c)
+                if cls:
+                    ccc[c] = cls
+            if dec and not dec.startswith("<") and len(span) == 1:
+                parts = [int(x, 16) for x in dec.split()]
+                assert len(parts) in (1, 2), hex(cp)
+                decomposition[cp] = parts
+    return decomposition, ccc, punctuation
+
+
+def parse_property(path, wanted):
+    out = set()
+    for line in data_lines(path):
+        fields = [x.strip() for x in line.split(";")]
+        if fields[1] == wanted:
+            out.update(code_range(fields[0]))
+    return out
+
+
+def parse_case_folding(path):
+    out = {}
+    for line in data_lines(path):
+        fields = [x.strip() for x in line.split(";")]
+        if fields[1] in ("C", "S"):
+            out[int(fields[0], 16)] = int(fields[2], 16)
+    return out
+
+
+def ranges(codepoints):
+    out = []
+    for c in sorted(codepoints):
+        if out and out[-1][1] + 1 == c:
+            out[-1][1] = c
+        else:
+            out.append([c, c])
+    return out
+
+
+def ccc_ranges(ccc):
+    out = []
+    for c in sorted(ccc):
+        if out and out[-1][1] + 1 == c and out[-1][2] == ccc[c]:
+            out[-1][1] = c
+        else:
+            out.append([c, c, ccc[c]])
+    return out
+
+
+def emit_array(lines, decl, rows, per_line):
+    lines.append(decl + " = {")
+    for i in range(0, len(rows), per_line):
+        lines.append("    " + " ".join(rows[i:i + per_line]))
+    lines.append("};")
+    lines.append("")
+
+
+def hexu(v):
+    return "0x%04Xu" % v
+
+
+def main():
+    if len(sys.argv) != 4:
+        print(__doc__)
+        return 2
+    ucd, out_header, out_subset = sys.argv[1:]
+    files = ["UnicodeData.txt", "DerivedNormalizationProps.txt", "PropList.txt",
+             "CaseFolding.txt", "NormalizationTest.txt"]
+    paths = {f: os.path.join(ucd, f) for f in files}
+
+    with open(paths["NormalizationTest.txt"], encoding="utf-8") as f:
+        header_line = f.readline().strip()
+    assert VERSION in header_line, "NormalizationTest.txt is not Unicode " + VERSION
+
+    decomposition, ccc, punctuation = parse_unicode_data(paths["UnicodeData.txt"])
+    full_exclusion = parse_property(paths["DerivedNormalizationProps.txt"], "Full_Composition_Exclusion")
+    white_space = parse_property(paths["PropList.txt"], "White_Space")
+    folding = parse_case_folding(paths["CaseFolding.txt"])
+
+    compositions = {}
+    for cp, parts in decomposition.items():
+        if len(parts) == 2 and cp not in full_exclusion:
+            key = (parts[0], parts[1])
+            assert key not in compositions, hex(cp)
+            compositions[key] = cp
+
+    L = []
+    L.append("#pragma once")
+    L.append("")
+    L.append("// GENERATED by native/tools/ucd/gen_unicode_tables.py — do not edit by hand.")
+    L.append("//")
+    L.append("// Unicode Character Database %s (https://www.unicode.org/Public/%s/ucd/)." % (VERSION, VERSION))
+    L.append("// Input SHA-256:")
+    for f in files:
+        L.append("//   %s  %s" % (sha256(paths[f]), f))
+    L.append("//")
+    L.append("// Tables for language-layer-spec §6.1 steps 1 (NFC), 3 (whitespace), 5 (case")
+    L.append("// folding) and 6 (punctuation). Language-neutral: they are the Unicode")
+    L.append("// definitions, the same for every language pack (language spec L9).")
+    L.append("// Hangul syllables are handled algorithmically and are not listed.")
+    L.append("")
+    L.append('#include "common/types.h"')
+    L.append("")
+    L.append("namespace itantra {")
+    L.append("namespace ucd {")
+    L.append("")
+    L.append('constexpr char kUnicodeVersion[] = "%s";' % VERSION)
+    L.append("")
+    L.append("struct CodeRange { u32 first; u32 last; };")
+    L.append("struct CccRange { u32 first; u32 last; u8 ccc; };")
+    L.append("struct Decomposition { u32 cp; u32 first; u32 second; };   // second == 0: singleton")
+    L.append("struct Composition { u32 first; u32 second; u32 composite; };")
+    L.append("struct CodeMapping { u32 cp; u32 to; };")
+    L.append("")
+
+    emit_array(L, "// Canonical_Combining_Class != 0, contiguous runs of equal class.\n"
+                  "inline constexpr CccRange kCombiningClass[]",
+               ["{%s, %s, %du}," % (hexu(a), hexu(b), c) for a, b, c in ccc_ranges(ccc)], 3)
+    emit_array(L, "// Canonical (not compatibility) decomposition mappings, sorted by cp.\n"
+                  "inline constexpr Decomposition kDecomposition[]",
+               ["{%s, %s, %s}," % (hexu(cp), hexu(d[0]), hexu(d[1] if len(d) == 2 else 0))
+                for cp, d in sorted(decomposition.items())], 3)
+    emit_array(L, "// Primary composites: pair decompositions not in Full_Composition_Exclusion,\n"
+                  "// sorted by (first, second).\n"
+                  "inline constexpr Composition kComposition[]",
+               ["{%s, %s, %s}," % (hexu(a), hexu(b), hexu(c)) for (a, b), c in sorted(compositions.items())], 3)
+    emit_array(L, "// White_Space.\ninline constexpr CodeRange kWhiteSpace[]",
+               ["{%s, %s}," % (hexu(a), hexu(b)) for a, b in ranges(white_space)], 4)
+    emit_array(L, "// General_Category Pc Pd Ps Pe Pi Pf Po.\ninline constexpr CodeRange kPunctuation[]",
+               ["{%s, %s}," % (hexu(a), hexu(b)) for a, b in ranges(punctuation)], 4)
+    emit_array(L, "// Simple case folding, CaseFolding.txt status C and S, sorted by cp.\n"
+                  "inline constexpr CodeMapping kSimpleCaseFolding[]",
+               ["{%s, %s}," % (hexu(a), hexu(b)) for a, b in sorted(folding.items())], 4)
+
+    L.append("}  // namespace ucd")
+    L.append("}  // namespace itantra")
+    with open(out_header, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(L) + "\n")
+
+    # NFC conformance subset for the repository tests: every line of Parts 0, 2,
+    # 3, 4 and 5, and the Part 1 lines for the blocks the ten languages and
+    # their Latin loanwords use. The full file is run separately.
+    keep_part1 = [(0x0000, 0x036F), (0x0900, 0x0DFF), (0x1E00, 0x1EFF), (0x2000, 0x206F), (0xA8E0, 0xA8FF)]
+    part = None
+    kept = 0
+    with open(paths["NormalizationTest.txt"], encoding="utf-8") as src, \
+            open(out_subset, "w", encoding="utf-8", newline="\n") as out:
+        out.write("# NFC conformance subset of NormalizationTest-%s.txt\n" % VERSION)
+        out.write("# Source SHA-256 %s\n" % sha256(paths["NormalizationTest.txt"]))
+        out.write("# Generated by native/tools/ucd/gen_unicode_tables.py. Columns c1;c2;c3;c4;c5.\n")
+        for raw in src:
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            if line.startswith("@Part"):
+                part = line.split()[0]
+                out.write(part + "\n")
+                continue
+            cols = line.rstrip(";").split(";")
+            if part == "@Part1":
+                cp = int(cols[0].split()[0], 16)
+                if not any(a <= cp <= b for a, b in keep_part1):
+                    continue
+            out.write(";".join(cols[:5]) + "\n")
+            kept += 1
+
+    print("ccc runs %d, decompositions %d, compositions %d, white_space runs %d, punctuation runs %d, "
+          "case folds %d, NFC subset lines %d" % (len(ccc_ranges(ccc)), len(decomposition), len(compositions),
+                                                  len(ranges(white_space)), len(ranges(punctuation)),
+                                                  len(folding), kept))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

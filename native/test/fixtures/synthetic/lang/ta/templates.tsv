@@ -1,0 +1,19 @@
+# intent	template
+REPORT_FIRE_AT	{LOCATION:locative} தீ
+REQUEST_MEDICAL_AT	{LOCATION:locative} {OBJECT:plain} அனுப்புங்க
+REQUEST_SUPPLY_AT	{LOCATION:locative} {OBJECT:plain} அனுப்புங்க
+REQUEST_MOVE	{ACTOR:plain} நகர்
+REPORT_CASUALTY_COUNT	{QUANTITY:digits} பேர் காயம்
+REPORT_STATE	{STATE:plain}
+ANSWER_COUNT	{QUANTITY:native}
+CANCEL_REQUEST	{OBJECT:plain} அனுப்ப வேண்டாம்
+REPORT_FLOOD_AT	{LOCATION:locative} வெள்ளம்
+REPORT_COLLAPSE_AT	{LOCATION:locative} இடிந்தது
+REQUEST_STOP	{ACTOR:plain} நிறுத்து
+REQUEST_EVACUATE_AT	{LOCATION:plain} காலி செய்யுங்க
+QUERY_CASUALTY_COUNT	எத்தனை பேர் காயம்
+REQUEST_GENERIC	{OBJECT:plain} அனுப்புங்க
+REQUEST_MOVE_AWAY	{ACTOR:plain} விலகிச் செல்
+REQUEST_HELP	{OBJECT:plain} உடனே அனுப்புங்க
+REPORT_DANGER	நிலைமை ஆபத்தானது
+REQUEST_CALL	{ACTOR:plain} அழையுங்க

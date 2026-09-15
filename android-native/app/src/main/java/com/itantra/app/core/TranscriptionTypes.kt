@@ -1,6 +1,8 @@
 package com.itantra.app.core
 
 import com.itantra.app.packet.ITantraPacket
+import com.itantra.app.packet.NativeSendInfo
+import com.itantra.app.packet.PacketPriority
 import com.itantra.app.stt.SttEngineKind
 
 /** Direct port of TransmitterStatus in src/core/types.ts. High-level state of the transmitter, surfaced to the UI. */
@@ -62,7 +64,16 @@ val INITIAL_TRANSCRIPTION_STATE = TranscriptionState(
     engine = SttEngineKind.NONE,
 )
 
-/** Direct port of LogEntry in src/hooks/useTransmitterController.ts. One entry in the transmitted-message log. */
+/**
+ * One entry in the transmitted-message log.
+ *
+ * Several fields moved here from [ITantraPacket] in Phase 0. They are all
+ * facts the **sender** legitimately knows and the wire no longer carries
+ * (`packet-security-transport-spec.md` §1.3): the plaintext, its size, the
+ * priority and the language. Holding them on this side is what lets the
+ * transmitter's log and the M-01/M-05 measurements keep working without
+ * re-duplicating anything onto the link.
+ */
 data class LogEntry(
     val packet: ITantraPacket,
     /**
@@ -73,11 +84,17 @@ data class LogEntry(
      * already knows it.
      */
     val text: String,
-    /** Whether decoding the packet's own payload reproduces [text] exactly. */
-    val roundTripOk: Boolean,
+    /** UTF-8 size of [text] — M-01 (`contract §6.1`). Sender-side; never transmitted. */
+    val originalBytes: Int,
+    /** The priority written into the native payload. Sender-side copy. */
+    val priority: PacketPriority,
+    /** The sender's language. Sender-side copy. */
+    val language: String,
     /** Whether the transport accepted the packet. */
     val delivered: Boolean,
     val latencyMs: Long,
     /** True when the text came from the simulated recogniser, not a real decode. */
     val simulated: Boolean,
+    /** What the native sender did with this clause (Phase 11). Sender-side copy. */
+    val native: NativeSendInfo? = null,
 )

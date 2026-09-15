@@ -40,10 +40,10 @@ class MockTransport(
         }
 
         sent.add(packet)
-        println(
-            "[MockTransport] -> ${packet.priority.value} ${packet.language} " +
-                "${packet.mode.name} ${packet.originalBytes} B -> ${packet.payload.size} B (${packet.id})"
-        )
+        // Tier, priority and language are inside the native payload now
+        // (`packet §1.3`) and this layer must not parse it, so the log states
+        // only what the transport genuinely knows.
+        println("[MockTransport] -> ${packet.payload.size} B payload (${packet.id})")
 
         // No real P2P transport exists yet (a separate, later workstream), so
         // this loops a successfully "sent" packet back to this same device's

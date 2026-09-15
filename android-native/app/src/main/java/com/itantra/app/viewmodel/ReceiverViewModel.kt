@@ -1,9 +1,15 @@
 package com.itantra.app.viewmodel
 
 import android.content.Context
-import com.itantra.app.codec.ITantraCodec
+import android.util.Log
 import com.itantra.app.config.DEFAULT_LANGUAGE
+import com.itantra.app.config.findLanguage
 import com.itantra.app.device.CriticalAlert
+import com.itantra.app.native.NativeEngine
+import com.itantra.app.native.NativeReceiveResult
+import com.itantra.app.native.ReceiveStatus
+import com.itantra.app.native.SLOT_NAMES
+import com.itantra.app.native.appLanguageOf
 import com.itantra.app.packet.ITantraPacket
 import com.itantra.app.packet.PacketPriority
 import com.itantra.app.receiver.ReceivedMessage
@@ -19,27 +25,27 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
+private const val TAG = "ReceiverViewModel"
 private const val MAX_HISTORY = 60
 
 /**
  * Direct port of src/hooks/useReceiverController.ts's state and lifecycle.
  *
  * Owns the receiver pipeline: listens for incoming packets on [transport],
- * hands each one to a TtsManager (Phase 8), and tracks per-message
- * playback state for the receiver UI. Mirrors TransmitterViewModel's shape
- * (a plain state holder owning long-lived engines, exposing StateFlow, both
- * lifecycle-managed by AppViewModel) so the two screens read as one
- * consistent architecture, same as the source's own "mirrors
- * useTransmitterController's shape" comment.
+ * hands each native payload to the native receive pipeline (Phase 11), then
+ * hands what decoded to a TtsManager and tracks per-message playback state for
+ * the receiver UI. Mirrors TransmitterViewModel's shape (a plain state holder
+ * owning long-lived engines, exposing StateFlow, both lifecycle-managed by
+ * AppViewModel) so the two screens read as one consistent architecture.
  */
 class ReceiverViewModel(
     context: Context,
     private val transport: Transport,
+    /** The phone's native engine (Phase 11). Null only if the library or its packs failed to load. */
+    private val engine: NativeEngine?,
 ) {
     private val appContext = context.applicationContext
     val transportName: String = transport.name
-    /** Bytes -> text. The only thing that turns an arriving payload into words. */
-    private val codec = ITantraCodec()
     private val ttsManager = TtsManager(appContext, File(appContext.filesDir, "itantra-tts-models"))
 
     /** Maps a TtsManager request id back to the history row it belongs to - identity for normal messages, a synthetic id for replays. */
@@ -100,55 +106,79 @@ class ReceiverViewModel(
         // screen said one thing and the speaker did another.
         if (_messages.value.any { it.packet.id == packet.id }) return
 
-        // Fired on arrival, before decoding or speech is attempted, and
-        // regardless of whether either succeeds. A CRITICAL that cannot be
-        // spoken - no voice pack, audio focus lost to a call - must still be
-        // felt.
-        if (packet.priority == PacketPriority.CRITICAL) {
-            CriticalAlert.vibrate(appContext)
-        }
-
-        // Decoded once, here. Everything downstream - the log row, the
-        // language chip, the voice - reads these two values rather than
-        // re-deriving them, which is the whole reason decode() returns the
-        // language alongside the text (see codec.DecodedText).
-        val decoded = try {
-            codec.decode(packet.mode, packet.payload, packet.language, _language.value)
-        } catch (e: Exception) {
-            // A payload this build cannot decode is not spoken and not
-            // guessed at; it is shown as a failed message.
-            val failed = ReceivedMessage(
-                packet = packet,
-                text = "",
-                textLanguage = packet.language,
-                state = ReceivedMessageState.ERROR,
-                error = "This message could not be decoded.",
-                receivedAt = System.currentTimeMillis(),
+        val receiverLanguage = _language.value
+        val engine = engine
+        if (engine == null || !engine.supports(receiverLanguage)) {
+            addRow(
+                undecodable(
+                    packet,
+                    if (engine == null) {
+                        "The native engine did not load, so this message cannot be decoded."
+                    } else {
+                        "No language pack for ${findLanguage(receiverLanguage).label} yet — this message cannot be decoded."
+                    },
+                )
             )
-            _messages.value = (listOf(failed) + _messages.value).let {
-                if (it.size > MAX_HISTORY) it.subList(0, MAX_HISTORY) else it
-            }
             return
         }
 
-        val entry = ReceivedMessage(
-            packet = packet,
-            text = decoded.text,
-            textLanguage = decoded.languageCode,
-            state = ReceivedMessageState.RECEIVED,
-            error = null,
-            receivedAt = System.currentTimeMillis(),
-        )
-        val withNew = (listOf(entry) + _messages.value).let {
-            if (it.size > MAX_HISTORY) it.subList(0, MAX_HISTORY) else it
+        // `receiver §1.1`: the outer frame is unwrapped; the native payload goes
+        // down whole and the §7 output interface comes back. Nothing here reads
+        // tier, priority or language out of the payload itself (`packet §1.1`).
+        val result = try {
+            engine.receive(receiverLanguage, packet.payload)
+        } catch (e: Exception) {
+            Log.w(TAG, "native receive refused ${packet.id}", e)
+            addRow(undecodable(packet, "This message could not be decoded."))
+            return
         }
-        _messages.value = withNew
+        Log.i(
+            TAG,
+            "native receive ${packet.id}: ${result.outcome}, status ${result.status}, tier ${result.mode}, " +
+                "priority ${result.priority}, counter ${result.counter}, committed ${result.contextCommitted}",
+        )
+
+        // `receiver §7`, §9: an authentication failure leaves nothing readable
+        // and a replay is discarded silently. Neither is output.
+        if (!result.emit) return
+
+        val priority = if (result.priority == 1) PacketPriority.CRITICAL else PacketPriority.NORMAL
+
+        // Fired on arrival, before speech is attempted, and regardless of
+        // whether it succeeds. A CRITICAL that cannot be spoken - no voice pack,
+        // audio focus lost to a call - must still be felt. Restored from the
+        // prototype: priority is known again, read from the authenticated
+        // payload (`receiver §7.4`).
+        if (priority == PacketPriority.CRITICAL) {
+            CriticalAlert.vibrate(appContext)
+        }
+
+        if (result.status != ReceiveStatus.OK) {
+            addRow(failedDelivery(packet, result, priority, receiverLanguage))
+            return
+        }
+
+        // `receiver §7.2`: the voice follows the output's language id — the
+        // receiver's own for Tier 1, the sender's for Tier 2 — never this
+        // phone's setting alone.
+        val textLanguage = appLanguageOf(result.languageCode) ?: receiverLanguage
+        val text = String(result.text, Charsets.UTF_8)
+
+        addRow(
+            ReceivedMessage(
+                packet = packet,
+                text = text,
+                textLanguage = textLanguage,
+                priority = priority,
+                state = ReceivedMessageState.RECEIVED,
+                error = null,
+                receivedAt = System.currentTimeMillis(),
+                tier = tierOf(result),
+            )
+        )
 
         correlation[packet.id] = packet.id
-        // decoded.languageCode, NOT packet.language: a PHRASE message was
-        // rendered in this device's own language and must be spoken in this
-        // device's own voice.
-        ttsManager.speakText(decoded.text, decoded.languageCode, packet.priority, packet.id)
+        ttsManager.speakText(text, textLanguage, priority, packet.id)
 
         // Reflect "handed to the queue" promptly; the subscription above
         // takes over from here once the manager actually starts on it.
@@ -161,6 +191,63 @@ class ReceiverViewModel(
         }
     }
 
+    /**
+     * An authentic packet that did not deliver a message: context mismatch,
+     * integrity failure or render failure (`receiver §7`).
+     *
+     * `receiver §7.1`, C-31: no text, and unresolved slots appear by NAME only.
+     * Nothing is spoken.
+     */
+    private fun failedDelivery(
+        packet: ITantraPacket,
+        result: NativeReceiveResult,
+        priority: PacketPriority,
+        receiverLanguage: String,
+    ): ReceivedMessage {
+        val unresolved = result.unresolved.map { SLOT_NAMES.getOrElse(it) { "SLOT $it" } }
+        val error = when (result.status) {
+            ReceiveStatus.CONTEXT_MISMATCH ->
+                if (unresolved.isNotEmpty()) {
+                    "Context out of step — not delivered. Unresolved: ${unresolved.joinToString()}."
+                } else {
+                    "Context out of step — this message needs to be resent without context."
+                }
+            ReceiveStatus.INTEGRITY_FAIL -> "Integrity check failed — message rejected."
+            ReceiveStatus.RENDER_FAIL ->
+                "Received, but it cannot be rendered in ${findLanguage(receiverLanguage).label}."
+            else -> "This message could not be decoded."
+        }
+        return ReceivedMessage(
+            packet = packet,
+            text = "",
+            textLanguage = appLanguageOf(result.languageCode) ?: receiverLanguage,
+            priority = priority,
+            state = ReceivedMessageState.ERROR,
+            error = error,
+            receivedAt = System.currentTimeMillis(),
+            tier = tierOf(result),
+            unresolved = unresolved,
+        )
+    }
+
+    private fun undecodable(packet: ITantraPacket, error: String) = ReceivedMessage(
+        packet = packet,
+        text = "",
+        textLanguage = _language.value,
+        priority = PacketPriority.NORMAL,
+        state = ReceivedMessageState.ERROR,
+        error = error,
+        receivedAt = System.currentTimeMillis(),
+    )
+
+    private fun tierOf(result: NativeReceiveResult): Int = if (result.mode == 1 || result.mode == 2) result.mode else 0
+
+    private fun addRow(message: ReceivedMessage) {
+        _messages.value = (listOf(message) + _messages.value).let {
+            if (it.size > MAX_HISTORY) it.subList(0, MAX_HISTORY) else it
+        }
+    }
+
     fun clearHistory() {
         _messages.value = emptyList()
     }
@@ -168,12 +255,15 @@ class ReceiverViewModel(
     /** Re-speak a previously received message, in its original language. */
     fun replay(packetId: String) {
         val entry = _messages.value.find { it.packet.id == packetId } ?: return
+        // Nothing decoded, nothing to say — and an unresolved row must never be
+        // voiced (`receiver §7.1`).
+        if (entry.text.isEmpty()) return
 
         val replayId = "$packetId::replay::${System.currentTimeMillis()}"
         correlation[replayId] = packetId
         // Reads the already-decoded row rather than decoding again, so a
         // replay can never disagree with what was originally spoken.
-        ttsManager.speakText(entry.text, entry.textLanguage, entry.packet.priority, replayId)
+        ttsManager.speakText(entry.text, entry.textLanguage, entry.priority, replayId)
 
         _messages.value = _messages.value.map { m ->
             if (m.packet.id == packetId) m.copy(state = ReceivedMessageState.QUEUED, error = null) else m

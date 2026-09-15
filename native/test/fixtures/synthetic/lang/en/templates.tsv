@@ -1,0 +1,19 @@
+# intent	template
+REPORT_FIRE_AT	Fire {LOCATION:locative}
+REQUEST_MEDICAL_AT	Send {OBJECT:plain} {LOCATION:destination}
+REQUEST_SUPPLY_AT	Send {OBJECT:plain} {LOCATION:destination}
+REQUEST_MOVE	{ACTOR:plain} move
+REPORT_CASUALTY_COUNT	{QUANTITY:digits} injured
+REPORT_STATE	{STATE:plain}
+ANSWER_COUNT	{QUANTITY:digits}
+CANCEL_REQUEST	Do not send {OBJECT:plain}
+REPORT_FLOOD_AT	Flood {LOCATION:locative}
+REPORT_COLLAPSE_AT	Collapse {LOCATION:locative}
+REQUEST_STOP	{ACTOR:plain} stop
+REQUEST_EVACUATE_AT	Evacuate {LOCATION:plain}
+QUERY_CASUALTY_COUNT	How many injured
+REQUEST_GENERIC	Send {OBJECT:plain}
+REQUEST_MOVE_AWAY	{ACTOR:plain} move away
+REQUEST_HELP	Send {OBJECT:plain} immediately
+REPORT_DANGER	The situation is dangerous
+REQUEST_CALL	Call the {ACTOR:plain}

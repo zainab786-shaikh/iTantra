@@ -1,0 +1,6 @@
+# Tier 2 table parameters (native/tools/packc.cpp). Columns: key	value
+#
+# boost_magnitude  the fixed integer added to the frequency of every subword of an
+#                  entity in context (tier §6.4). A measured parameter (tier §13.2);
+#                  this is a fixture value, not a decision.
+boost_magnitude	65536

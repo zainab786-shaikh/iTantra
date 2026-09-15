@@ -1,0 +1,51 @@
+# Synthetic test corpus. Columns: id	lang	flags	group	text	expect
+#
+# flags   comma list: plain, code_mixed, inflected, number, literal, nfc, ambiguous, multi_clause, nothing
+# group   utterances with the same group must extract identical slots in their first clause, whatever the language
+# expect  clauses separated by " | "; within a clause, items separated by "; ":
+#           SLOT=concept    a concept value          SLOT#n     a scanned value
+#           amb=SLOT        slot left ambiguous      lit=TEXT   unmatched run with these exact original bytes
+#           none            nothing matched          unrep      a scanner matched a value it cannot represent
+#         Slots not mentioned must be empty.
+h1	hi	plain	g1	उत्तर द्वार पर आग	LOCATION=north_gate
+h2	hi	code_mixed	g1	north gate पर आग	LOCATION=north_gate
+h3	hi	code_mixed	g2	अस्पताल में ambulance भेजो	LOCATION=hospital; OBJECT=ambulance
+h4	hi	plain	g2	अस्पताल में एम्बुलेंस भेजो	LOCATION=hospital; OBJECT=ambulance
+h5	hi	number	g3	तीन घायल	QUANTITY#3; STATE=injured
+h6	hi	number	g3	३ घायल	QUANTITY#3; STATE=injured
+h7	hi	number	g3	3 घायल	QUANTITY#3; STATE=injured
+h8	hi	number,inflected	-	तीन बजे पुल पर	TIME#180; LOCATION=bridge
+h9	hi	multi_clause,number,inflected	-	उत्तर द्वार पर आग, दक्षिण द्वार पर तीन घायल	LOCATION=north_gate | LOCATION=south_gate; QUANTITY#3; STATE=injured
+h10	hi	multi_clause,inflected	-	पुल बंद और अस्पताल में पानी भेजो	LOCATION=bridge; STATE=blocked | LOCATION=hospital; OBJECT=water
+h11	hi	literal	-	रमेश को हटो	lit=रमेश
+h12	hi	literal	-	অমিত को भेजो	lit=অমিত
+h13	hi	literal,code_mixed	-	Ramesh Kumar को पानी भेजो	OBJECT=water; lit=Ramesh Kumar
+h14	hi	nothing	-	यह ठीक है	none
+h15	hi	ambiguous	-	उत्तर द्वार दक्षिण द्वार	amb=LOCATION
+h16	hi	plain	-	दवाई भेजो	OBJECT=medicine
+h17	hi	number	-	० घायल	unrep; STATE=injured
+t1	ta	inflected	g1	வடக்கு வாசலில் தீ	LOCATION=north_gate
+t2	ta	code_mixed	g1	north gate ல தீ	LOCATION=north_gate
+t3	ta	inflected	-	வடக்கு வாசலுக்கு ஆம்புலன்ஸ் அனுப்புங்க	LOCATION=north_gate; OBJECT=ambulance
+t4	ta	code_mixed,inflected	g2	மருத்துவமனையில் ambulance அனுப்புங்க	LOCATION=hospital; OBJECT=ambulance
+t5	ta	number	g3	மூன்று பேர் காயம்	QUANTITY#3; STATE=injured
+t6	ta	number	g3	௩ பேர் காயம்	QUANTITY#3; STATE=injured
+t7	ta	number,inflected	-	5 மணி பாலத்தில்	TIME#300; LOCATION=bridge
+t8	ta	multi_clause,inflected	-	பாலம் அடைப்பு மற்றும் சந்தையில் உணவு அனுப்புங்க	LOCATION=bridge; STATE=blocked | LOCATION=market; OBJECT=food
+t9	ta	literal	-	முருகன் நகர்	lit=முருகன்
+t10	ta	literal,code_mixed	-	李明 police	ACTOR=police; lit=李明
+t11	ta	nothing	-	சரி	none
+t12	ta	inflected,number	-	காயமடைந்தவர்கள் பத்து	STATE=injured; QUANTITY#10
+e1	en	plain	g1	Fire at the north gate	LOCATION=north_gate
+e2	en	plain	g2	Send an ambulance to the hospital	OBJECT=ambulance; LOCATION=hospital
+e3	en	number	g3	Three injured	QUANTITY#3; STATE=injured
+e4	en	number	-	twenty three injured	QUANTITY#23; STATE=injured
+e5	en	number	-	3 o'clock at the bridge	TIME#180; LOCATION=bridge
+e6	en	ambiguous	-	Send relief	amb=LOCATION; amb=OBJECT
+e7	en	plain	-	POLICE MOVE	ACTOR=police
+e8	en	plain	-	Send ambulence	OBJECT=ambulance
+e9	en	literal	-	Tell Ravi to move	lit=Ravi
+e10	en	multi_clause,inflected	-	Fire at the market! Send water and blankets	LOCATION=market | OBJECT=water | OBJECT=blanket
+e11	en	nothing	-	okay	none
+e12	en	ambiguous	-	north gate or south gate	amb=LOCATION
+e13	en	nfc	-	Meet at the café	LOCATION=market
