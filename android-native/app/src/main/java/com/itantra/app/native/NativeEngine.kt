@@ -125,6 +125,23 @@ class NativeEngine internal constructor(private var handle: Long) : AutoCloseabl
     }
 
     /**
+     * Phase 12: a session with the peer phone. [psk] is the provisioned 32-byte
+     * PSK; the nonces are both phones' HELLO nonces ordered by role (`packet §6.7`).
+     * This phone sends in its role's direction and authenticates the other.
+     */
+    /**
+     * C-34 compatibility descriptor, compared at HELLO (`packet §8.3`, `context §18.1`):
+     * packet format, coder, KDF, cipher suite, schema version, pack digest.
+     */
+    @Synchronized
+    fun compatibility(): IntArray = nativeCompatibility(open())
+
+    @Synchronized
+    fun beginSession(psk: ByteArray, initiatorNonce: ByteArray, responderNonce: ByteArray, initiator: Boolean) {
+        nativeBeginSession(open(), psk, initiatorNonce, responderNonce, initiator)
+    }
+
+    /**
      * Encode one utterance: ONE JNI crossing, one result per clause, in order.
      * Languages are app codes (`en-IN`) or pack codes (`en`).
      */
@@ -171,6 +188,14 @@ class NativeEngine internal constructor(private var handle: Long) : AutoCloseabl
         psk: ByteArray,
         initiatorNonce: ByteArray,
         responderNonce: ByteArray,
+    )
+    private external fun nativeCompatibility(handle: Long): IntArray
+    private external fun nativeBeginSession(
+        handle: Long,
+        psk: ByteArray,
+        initiatorNonce: ByteArray,
+        responderNonce: ByteArray,
+        initiator: Boolean,
     )
     private external fun nativeSendUtterance(
         handle: Long,

@@ -84,6 +84,10 @@ namespace itantra {
 constexpr i64  kSttConfidenceUnavailable = std::numeric_limits<i64>::min();
 constexpr bool kBoostTier2               = false;
 
+// Cipher suite 1 = ChaCha20-Poly1305, RFC 8439 (packet spec §6.6 implementation
+// resolution). Compared at HELLO with the other versions (packet §8.3, C-34).
+constexpr u8 kCipherSuite = 1u;
+
 enum class EngineStatus : u8 {
     Ok,
     NotLoaded,          // load() has not succeeded
@@ -144,10 +148,21 @@ public:
     std::vector<std::string> languages() const;
     bool                     has_language(const std::string& code) const;
 
+    // HELLO compatibility (packet §8.3, context §18.1, C-34): the schema version
+    // and a CRC-32/ISO-HDLC over every loaded pack file (name, 0, bytes), in name order.
+    u32 schema_version() const noexcept { return common_.schema_version(); }
+    u32 pack_digest() const noexcept { return pack_digest_; }
+
     // psk: kPskBytes; nonces: kHelloNonceBytes each. Starts both halves from the
     // context spec §5.3 initial state; the send counter restarts at 0 (the first
     // message carries 1, crypto/nonce.h).
     void begin_loopback_session(const u8* psk, const u8* initiator_nonce, const u8* responder_nonce) noexcept;
+
+    // Phase 12 — a session with another phone. Keys from the pinned KDF over the
+    // PSK and both HELLO nonces, ordered by HELLO role (packet §6.7). This phone
+    // sends in its role's direction and authenticates the peer's (packet §6.5).
+    void begin_session(const u8* psk, const u8* initiator_nonce, const u8* responder_nonce, bool initiator) noexcept;
+    u32  session_id() const;
     void end_session() noexcept;
 
     UtteranceSend send_utterance(const SendRequest& request);
@@ -167,6 +182,7 @@ private:
     RuleTable                           rules_;
     std::map<std::string, LanguagePack> packs_;
     bool                                loaded_ = false;
+    u32                                 pack_digest_ = 0u;
 
     mutable std::mutex send_mutex_;
     mutable std::mutex receive_mutex_;

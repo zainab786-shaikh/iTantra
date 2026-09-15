@@ -1,5 +1,6 @@
 #include "api/engine.h"
 
+#include <algorithm>
 #include <cstring>
 #include <utility>
 
@@ -110,7 +111,18 @@ bool Engine::load(const PackFiles& files, std::string& error) {
     tier2_  = std::move(tier2);
     rules_  = std::move(rules);
     packs_  = std::move(packs);
-    loaded_ = true;
+
+    std::vector<const PackFile*> ordered;
+    for (const PackFile& f : files) ordered.push_back(&f);
+    std::sort(ordered.begin(), ordered.end(), [](const PackFile* a, const PackFile* b) { return a->first < b->first; });
+    std::vector<u8> all;
+    for (const PackFile* f : ordered) {
+        all.insert(all.end(), f->first.begin(), f->first.end());
+        all.push_back(0u);
+        all.insert(all.end(), f->second.begin(), f->second.end());
+    }
+    pack_digest_ = crc32_iso_hdlc(all.data(), all.size());
+    loaded_      = true;
     return true;
 }
 
@@ -132,6 +144,23 @@ void Engine::begin_loopback_session(const u8* psk, const u8* initiator_nonce, co
     send_counter_ = 0u;
     begin_receiver_session(receiver_, keys_, send_direction_);
     session_ = true;
+}
+
+void Engine::begin_session(const u8* psk, const u8* initiator_nonce, const u8* responder_nonce,
+                           bool initiator) noexcept {
+    std::scoped_lock lock(send_mutex_, receive_mutex_);
+    derive_session_keys(psk, initiator_nonce, responder_nonce, keys_);
+    send_direction_ = initiator ? Direction::InitiatorToResponder : Direction::ResponderToInitiator;
+    init_context(send_context_);
+    send_counter_ = 0u;
+    begin_receiver_session(receiver_, keys_,
+                           initiator ? Direction::ResponderToInitiator : Direction::InitiatorToResponder);
+    session_ = true;
+}
+
+u32 Engine::session_id() const {
+    std::lock_guard<std::mutex> lock(send_mutex_);
+    return keys_.session_id;
 }
 
 void Engine::end_session() noexcept {

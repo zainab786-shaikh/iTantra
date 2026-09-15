@@ -110,7 +110,13 @@ object PacketCodec {
          * not know that id. Phase 11 feeds it to the cross-language context
          * rule (`tier §11.3`); Phase 0 only logs it.
          */
-        data class Hello(val nodeId: Short, val languageCode: String?) : Frame()
+        data class Hello(
+            val nodeId: Short,
+            val languageCode: String?,
+            val sessionNonce: ByteArray? = null,
+            /** C-34 compatibility descriptor (NativeEngine.compatibility), when announced. */
+            val compatibility: IntArray? = null,
+        ) : Frame()
     }
 
     /**
@@ -132,13 +138,37 @@ object PacketCodec {
         return frame
     }
 
-    /** Build a keepalive frame for [nodeId], announcing [languageCode]. */
-    fun serializeHello(nodeId: Short, languageCode: String): ByteArray {
-        val frame = ByteArray(HEADER_BYTES + 1)
-        writeHeader(frame, MODE_HELLO, nodeId, seq = 0, payloadLen = 1)
+    /** HELLO nonce size (`packet §6.7`, crypto/kdf.h kHelloNonceBytes). */
+    const val HELLO_NONCE_BYTES = 32
+
+    /**
+     * Build a keepalive frame for [nodeId], announcing [languageCode] and, from
+     * Phase 12, this phone's session nonce: payload = language byte ‖ 32-byte nonce.
+     */
+    fun serializeHello(
+        nodeId: Short,
+        languageCode: String,
+        sessionNonce: ByteArray? = null,
+        /** C-34: [COMPATIBILITY_FIELDS] big-endian ints after the nonce. */
+        compatibility: IntArray? = null,
+    ): ByteArray {
+        val nonce = sessionNonce ?: ByteArray(0)
+        val descriptor = if (sessionNonce != null) compatibility else null
+        val extra = (descriptor?.size ?: 0) * 4
+        val frame = ByteArray(HEADER_BYTES + 1 + nonce.size + extra)
+        writeHeader(frame, MODE_HELLO, nodeId, seq = 0, payloadLen = 1 + nonce.size + extra)
         frame[HEADER_BYTES] = languageWireId(languageCode).coerceIn(0, 63).toByte()
+        nonce.copyInto(frame, HEADER_BYTES + 1)
+        descriptor?.forEachIndexed { i, v ->
+            val at = HEADER_BYTES + 1 + nonce.size + i * 4
+            writeU16(frame, at, (v ushr 16) and 0xFFFF)
+            writeU16(frame, at + 2, v and 0xFFFF)
+        }
         return frame
     }
+
+    /** Fields of the C-34 compatibility descriptor carried in HELLO. */
+    const val COMPATIBILITY_FIELDS = 6
 
     /**
      * Decode [length] bytes of [buffer].
@@ -169,7 +199,20 @@ object PacketCodec {
             } else {
                 null
             }
-            return Frame.Hello(nodeId, language)
+            val nonce = if (payloadLen >= 1 + HELLO_NONCE_BYTES) {
+                buffer.copyOfRange(HEADER_BYTES + 1, HEADER_BYTES + 1 + HELLO_NONCE_BYTES)
+            } else {
+                null
+            }
+            val descriptorAt = HEADER_BYTES + 1 + HELLO_NONCE_BYTES
+            val compatibility = if (payloadLen == 1 + HELLO_NONCE_BYTES + COMPATIBILITY_FIELDS * 4) {
+                IntArray(COMPATIBILITY_FIELDS) { i ->
+                    (readU16(buffer, descriptorAt + i * 4) shl 16) or readU16(buffer, descriptorAt + i * 4 + 2)
+                }
+            } else {
+                null
+            }
+            return Frame.Hello(nodeId, language, nonce, compatibility)
         }
 
         // A mode this build does not know is dropped, not misread as data.

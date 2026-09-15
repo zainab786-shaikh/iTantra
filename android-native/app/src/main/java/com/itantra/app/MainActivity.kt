@@ -98,6 +98,8 @@ private fun AppShell(appViewModel: AppViewModel) {
     // width, and dropping the BPS unit instead would have left a bare number
     // that says nothing. The Link screen carries the full wording.
     val simNote = if (throttleOn) "SIM LINK · $throttleBps BPS" else null
+    // C-34: a refused pairing is shown in place of the link line on both screens.
+    val pairingError by appViewModel.pairingError.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize().background(AppColor.Void)) {
         when (mode) {
@@ -105,12 +107,12 @@ private fun AppShell(appViewModel: AppViewModel) {
                 transmitter = appViewModel.transmitter,
                 hasMicPermission = audioPermissionGranted,
                 onRequestMicPermission = { requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO) },
-                linkNote = "TRANSMIT · OFFLINE",
+                linkNote = if (pairingError != null) "PAIRING FAILED · VERSION MISMATCH" else "TRANSMIT · OFFLINE",
                 simNote = simNote,
             )
             Mode.RECEIVE -> ReceiverScreen(
                 receiver = appViewModel.receiver,
-                linkNote = "RECEIVE · OFFLINE",
+                linkNote = if (pairingError != null) "PAIRING FAILED · VERSION MISMATCH" else "RECEIVE · OFFLINE",
                 simNote = simNote,
             )
             Mode.LINK -> LinkScreen(link = appViewModel.link, throttle = appViewModel.throttle)

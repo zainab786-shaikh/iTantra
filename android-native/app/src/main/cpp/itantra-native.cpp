@@ -245,6 +245,39 @@ Java_com_itantra_app_native_NativeEngine_nativeBeginLoopbackSession(JNIEnv* env,
     secure_wipe(b.data(), static_cast<u32>(b.size()));
 }
 
+JNIEXPORT void JNICALL
+Java_com_itantra_app_native_NativeEngine_nativeBeginSession(JNIEnv* env, jobject, jlong handle, jbyteArray psk,
+                                                            jbyteArray initiator_nonce, jbyteArray responder_nonce,
+                                                            jboolean initiator) {
+    Engine* engine = engine_of(env, handle);
+    if (engine == nullptr) return;
+    std::vector<u8> k, a, b;
+    if (!read_bytes(env, psk, k) || !read_bytes(env, initiator_nonce, a) || !read_bytes(env, responder_nonce, b)) return;
+    if (k.size() == kPskBytes && a.size() == kHelloNonceBytes && b.size() == kHelloNonceBytes) {
+        const bool is_initiator = initiator == JNI_TRUE;
+        engine->begin_session(k.data(), a.data(), b.data(), is_initiator);
+        LOGI("session started as %s, session_id %08x", is_initiator ? "initiator" : "responder", engine->session_id());
+    } else {
+        throw_java(env, kIllegalArgument, "PSK and HELLO nonces must be 32 bytes each (packet 6.7)");
+    }
+    secure_wipe(k.data(), static_cast<u32>(k.size()));
+    secure_wipe(a.data(), static_cast<u32>(a.size()));
+    secure_wipe(b.data(), static_cast<u32>(b.size()));
+}
+
+// C-34: packet format, coder, KDF, cipher suite, schema version, pack digest.
+JNIEXPORT jintArray JNICALL
+Java_com_itantra_app_native_NativeEngine_nativeCompatibility(JNIEnv* env, jobject, jlong handle) {
+    Engine* engine = engine_of(env, handle);
+    if (engine == nullptr) return nullptr;
+    const jint values[6] = {static_cast<jint>(kPacketFormatVersion), static_cast<jint>(kCoderVersion),
+                            static_cast<jint>(kKdfVersion),          static_cast<jint>(kCipherSuite),
+                            static_cast<jint>(engine->schema_version()), static_cast<jint>(engine->pack_digest())};
+    jintArray out = env->NewIntArray(6);
+    if (out != nullptr) env->SetIntArrayRegion(out, 0, 6, values);
+    return out;
+}
+
 JNIEXPORT jobjectArray JNICALL
 Java_com_itantra_app_native_NativeEngine_nativeSendUtterance(JNIEnv* env, jobject, jlong handle,
                                                              jbyteArray utf8, jstring sender_language,
@@ -294,6 +327,8 @@ Java_com_itantra_app_native_NativeEngine_nativeSendUtterance(JNIEnv* env, jobjec
             env->SetObjectArrayElement(out, static_cast<jsize>(i), clause);
             env->DeleteLocalRef(clause);
         }
+        LOGI("send done: sender context hash %04x, counter %llu", engine->sender_context().hash,
+             static_cast<unsigned long long>(engine->sender_counter()));
         return out;
     } catch (const std::exception& e) {
         throw_java(env, kRuntime, std::string("native send: ") + e.what());
@@ -343,6 +378,7 @@ Java_com_itantra_app_native_NativeEngine_nativeReceive(JNIEnv* env, jobject, jlo
         env->DeleteLocalRef(text);
         if (code != nullptr) env->DeleteLocalRef(code);
         env->DeleteLocalRef(slots);
+        LOGI("receive done: receiver context hash %04x", engine->receiver_context().hash);
         return result;
     } catch (const std::exception& e) {
         throw_java(env, kRuntime, std::string("native receive: ") + e.what());

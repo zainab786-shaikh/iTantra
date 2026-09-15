@@ -153,7 +153,7 @@ class NativeConformanceTest {
         fun natives(type: Class<*>) = type.declaredMethods.filter { Modifier.isNative(it.modifiers) }.map { it.name }.toSet()
         assertEquals(setOf("nativeVersion", "nativeCreate"), natives(NativeBridge::class.java))
         assertEquals(
-            setOf("nativeDestroy", "nativeLanguages", "nativeBeginLoopbackSession", "nativeSendUtterance", "nativeReceive"),
+            setOf("nativeDestroy", "nativeLanguages", "nativeBeginLoopbackSession", "nativeBeginSession", "nativeCompatibility", "nativeSendUtterance", "nativeReceive"),
             natives(NativeEngine::class.java),
         )
     }

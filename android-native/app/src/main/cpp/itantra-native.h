@@ -33,6 +33,14 @@ Java_com_itantra_app_native_NativeEngine_nativeBeginLoopbackSession(JNIEnv* env,
                                                                     jbyteArray psk, jbyteArray initiator_nonce,
                                                                     jbyteArray responder_nonce);
 
+JNIEXPORT void JNICALL
+Java_com_itantra_app_native_NativeEngine_nativeBeginSession(JNIEnv* env, jobject thiz, jlong handle, jbyteArray psk,
+                                                            jbyteArray initiator_nonce, jbyteArray responder_nonce,
+                                                            jboolean initiator);
+
+JNIEXPORT jintArray JNICALL
+Java_com_itantra_app_native_NativeEngine_nativeCompatibility(JNIEnv* env, jobject thiz, jlong handle);
+
 JNIEXPORT jobjectArray JNICALL
 Java_com_itantra_app_native_NativeEngine_nativeSendUtterance(JNIEnv* env, jobject thiz, jlong handle,
                                                              jbyteArray utf8, jstring sender_language,
