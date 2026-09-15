@@ -25,3 +25,15 @@ REPORT_STATE	STATE=trapped	hi	फंसे
 REPORT_STATE	STATE=trapped	ta	சிக்கியுள்ளனர்
 REPORT_STATE	STATE=trapped	en	trapped
 REQUEST_MOVE	ACTOR~रमेश	ta	रमेश நகர்
+REQUEST_MOVE_AWAY	ACTOR=police	hi	पुलिस दूर हटो
+REQUEST_MOVE_AWAY	ACTOR=police	ta	போலீஸ் விலகிச் செல்
+REQUEST_MOVE_AWAY	ACTOR=police	en	Police move away
+REQUEST_HELP	OBJECT=help	hi	मदद तुरंत भेजो
+REQUEST_HELP	OBJECT=help	ta	உதவி உடனே அனுப்புங்க
+REQUEST_HELP	OBJECT=help	en	Send help immediately
+REQUEST_CALL	ACTOR=police	hi	पुलिस को बुलाओ
+REQUEST_CALL	ACTOR=police	ta	போலீஸ் அழையுங்க
+REQUEST_CALL	ACTOR=police	en	Call the Police
+REQUEST_GENERIC	OBJECT=medical_assistance	hi	चिकित्सा सहायता भेजो
+REQUEST_GENERIC	OBJECT=medical_assistance	ta	மருத்துவ உதவி அனுப்புங்க
+REQUEST_GENERIC	OBJECT=medical_assistance	en	Send medical assistance

@@ -60,3 +60,16 @@ t04	ta	500	0	-	-	வடக்கு வாசலில் தீ	tier2 LowConfid
 t05	ta	900	0	-	-	போலீஸ் நகர்	tier1 REQUEST_MOVE NORMAL
 t06	ta	900	0	-	-	சரி	tier2 NoHead
 t07	ta	900	0	-	QUERY_CASUALTY_COUNT	௩	tier1 ANSWER_COUNT NORMAL
+e32	en	900	0	-	-	Police move away	tier1 REQUEST_MOVE_AWAY NORMAL
+e33	en	900	0	-	-	There is a fire at the hospital	tier2 ReadbackUnexplainedWord
+e34	en	900	0	-	-	Send help immediately	tier1 REQUEST_HELP CRITICAL
+e35	en	900	0	-	-	The situation is dangerous	tier1 REPORT_DANGER CRITICAL
+e36	en	900	0	-	-	Call the police	tier1 REQUEST_CALL NORMAL
+e37	en	900	0	-	-	Send medical assistance	tier1 REQUEST_GENERIC NORMAL
+e38	en	900	0	-	-	Hello this is a test message	tier2 NoHead
+e39	en	900	0	-	-	Testing the voice communication system	tier2 NoHead
+e40	en	900	0	-	-	The weather is good today	tier2 NoHead
+e41	en	900	0	-	-	Please send the location	tier2 NoRule
+e42	en	900	0	-	-	I am waiting near the main entrance	tier2 NoHead
+e43	en	900	0	-	-	The package has arrived	tier2 NoHead
+e44	en	900	0	-	-	Everything is working correctly	tier2 NoHead

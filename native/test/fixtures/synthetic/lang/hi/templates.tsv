@@ -13,3 +13,7 @@ REQUEST_STOP	{ACTOR:plain} रोको
 REQUEST_EVACUATE_AT	{LOCATION:plain} खाली करो
 QUERY_CASUALTY_COUNT	कितने घायल
 REQUEST_GENERIC	{OBJECT:plain} भेजो
+REQUEST_MOVE_AWAY	{ACTOR:plain} दूर हटो
+REQUEST_HELP	{OBJECT:plain} तुरंत भेजो
+REPORT_DANGER	स्थिति खतरनाक है
+REQUEST_CALL	{ACTOR:plain} को बुलाओ

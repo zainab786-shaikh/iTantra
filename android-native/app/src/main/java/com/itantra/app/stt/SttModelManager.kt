@@ -82,7 +82,11 @@ class SttModelManager(private val modelsRoot: File) {
                 }
             }
             onProgress(100, "extracting")
-            extractTarBz2(archiveFile, modelsRoot)
+            // Only what SttEngine loads. The release archive also carries the
+            // ~150 MB full-precision model.onnx and test WAVs; bzip2-decoding
+            // them took minutes on slower phones and left the install stuck at
+            // "100% extracting" (and the archive undeleted) while it ran.
+            extractTarBz2(archiveFile, modelsRoot, setOf("${model.id}/model.int8.onnx", "${model.id}/tokens.txt"))
             if (!finalDir.exists()) {
                 throw IllegalStateException("Extraction finished but ${model.id} is not in the expected location")
             }
@@ -136,20 +140,21 @@ class SttModelManager(private val modelsRoot: File) {
         }
     }
 
-    private fun extractTarBz2(archiveFile: File, targetDir: File) {
+    /** Extracts only the entries named in [needed], stopping as soon as all of them are written. */
+    private fun extractTarBz2(archiveFile: File, targetDir: File, needed: Set<String>) {
+        val remaining = needed.toMutableSet()
         BufferedInputStream(archiveFile.inputStream()).use { fileStream ->
             BZip2CompressorInputStream(fileStream).use { bzStream ->
                 TarArchiveInputStream(bzStream).use { tarStream ->
                     var entry: TarArchiveEntry? = tarStream.nextEntry as TarArchiveEntry?
-                    while (entry != null) {
-                        val outFile = File(targetDir, entry.name)
-                        if (entry.isDirectory) {
-                            outFile.mkdirs()
-                        } else {
+                    while (entry != null && remaining.isNotEmpty()) {
+                        if (!entry.isDirectory && entry.name in remaining) {
+                            val outFile = File(targetDir, entry.name)
                             outFile.parentFile?.mkdirs()
                             FileOutputStream(outFile).use { out -> tarStream.copyTo(out) }
+                            remaining.remove(entry.name)
                         }
-                        entry = tarStream.nextEntry as TarArchiveEntry?
+                        if (remaining.isNotEmpty()) entry = tarStream.nextEntry as TarArchiveEntry?
                     }
                 }
             }

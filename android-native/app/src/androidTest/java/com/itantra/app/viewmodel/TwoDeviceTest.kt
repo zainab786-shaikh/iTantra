@@ -68,6 +68,22 @@ class TwoDeviceTest {
         assertPairingRefused(app(local.copyOf().also { it[0] += 1 }))
     }
 
+    /** A fresh English STT install reaches Installed and a loadable decoder. */
+    @Test
+    fun sttEnglishModelInstallsToReady() {
+        val root = File(context.filesDir, "itantra-models")
+        val model = com.itantra.app.config.NEMO_CTC_ENGLISH
+        // Fresh install: drop any earlier (possibly partial) install and archive first.
+        File(root, model.id).deleteRecursively()
+        File(root, "${model.id}.tar.bz2").delete()
+        com.itantra.app.stt.SttModelManager(root).install(model) { _, _ -> }
+        assertTrue("installed", com.itantra.app.stt.checkSttModelStatus(root, model) is com.itantra.app.stt.SttModelStatus.Installed)
+        assertTrue("archive removed", !File(root, "${model.id}.tar.bz2").exists())
+        val provider = SttEngineProvider(root)
+        assertEquals(SttEngineKind.SHERPA_ONNX, provider.prepare("en-IN").kind)
+        provider.dispose()
+    }
+
     /** C-34, the normal build facing the incompatible peer. */
     @Test
     fun c34CompatibleSideRefuses() {
@@ -95,7 +111,8 @@ class TwoDeviceTest {
         assertTrue("every message decoded", rows.all { it.text.isNotEmpty() && it.tier != 0 })
         assertTrue("Tier 1 rendered in the receiver's language, CRITICAL",
             rows.any { it.tier == 1 && it.textLanguage == "hi-IN" && it.priority == PacketPriority.CRITICAL })
-        assertEquals("inherited Tier 1 decoded under a matching context hash", 4, rows.count { it.tier == 1 })
+        assertEquals("Tier 1, incl. inherited and the spoken clause", 5, rows.count { it.tier == 1 })
+        assertTrue("spoken English clause rendered in Hindi", rows.last().tier == 1 && rows.last().textLanguage == "hi-IN")
         assertTrue("Tier 2 in the sender's words", rows.any { it.tier == 2 && it.text == "all is quiet here" && it.textLanguage == "en-IN" })
     }
 
@@ -126,7 +143,7 @@ class TwoDeviceTest {
                     tokens = File(dir, "tokens.txt").absolutePath,
                     dataDir = File(dir, "espeak-ng-data").let { if (it.exists()) it.absolutePath else "" }),
                 numThreads = 2, debug = false, provider = "cpu")))
-            val audio = tts.generate("send water to the hospital", sid = 0, speed = 1.0f)
+            val audio = tts.generate("fire at the north gate", sid = 0, speed = 1.0f)
             tts.release()
             val out = FloatArray((audio.samples.size.toLong() * 16_000 / audio.sampleRate).toInt()) {
                 audio.samples[(it.toLong() * audio.sampleRate / 16_000).toInt().coerceAtMost(audio.samples.size - 1)]
@@ -134,7 +151,9 @@ class TwoDeviceTest {
             val heard = stt.transcribe(out, "en-IN").text
             stt.dispose()
             Log.i(TAG, "STT heard \"$heard\"")
-            assertTrue(tx.transmit(heard, "en-IN", NativeBridge.CONFIDENCE_UNAVAILABLE, 0, false).packets.isNotEmpty())
+            // Exactly what handleSegment passes for the real decoder: Tier 1 → the receiver's language.
+            val spoken = tx.transmit(heard, "en-IN", sttConfidenceFor(SttEngineKind.SHERPA_ONNX), 0, false).packets.single()
+            assertEquals("spoken Tier 1 clause", 1, spoken.native!!.tier)
 
             Thread.sleep(3_000)
             val log = tx.log.value

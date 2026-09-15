@@ -209,7 +209,11 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
         }
 
         requestAudioFocus(isCritical)
-        if (isCritical) boostVolume() else restoreVolume()
+        if (isCritical) boostVolume() else {
+            restoreVolume()
+            raiseIfSilent()
+        }
+        unmuteForPlayback()
 
         setState(
             TtsPlaybackState(
@@ -300,8 +304,51 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
         }
     }
 
+    /** True while this manager has unmuted the media stream for a received message. */
+    private var unmutedForPlayback = false
+
+    /**
+     * A received message is played even when the media stream is muted: the
+     * operator is not holding the phone, and a message that completes playback
+     * in silence is lost. Muted again by [restoreVolume] once the queue is empty.
+     */
+    private fun unmuteForPlayback() {
+        try {
+            if (audioManager.isStreamMute(AudioManager.STREAM_MUSIC)) {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+                unmutedForPlayback = true
+                Log.i(TAG, "media stream was muted: unmuted for playback (will be restored)")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "cannot unmute media stream", e)
+        }
+    }
+
+    /** A NORMAL message on a stream at volume 0 plays at half volume, restored afterwards. */
+    private fun raiseIfSilent() {
+        if (volumeBeforeBoost != null) return
+        try {
+            val stream = AudioManager.STREAM_MUSIC
+            if (audioManager.getStreamVolume(stream) > 0) return
+            volumeBeforeBoost = 0
+            audioManager.setStreamVolume(stream, audioManager.getStreamMaxVolume(stream) / 2, 0)
+            Log.i(TAG, "media volume 0: raised for playback (will be restored)")
+        } catch (e: Exception) {
+            Log.w(TAG, "cannot raise volume", e)
+            volumeBeforeBoost = null
+        }
+    }
+
     /** Put the operator's media volume back. Safe to call when nothing was boosted. */
     private fun restoreVolume() {
+        if (unmutedForPlayback) {
+            unmutedForPlayback = false
+            try {
+                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+            } catch (e: Exception) {
+                // Best effort.
+            }
+        }
         val previous = volumeBeforeBoost ?: return
         volumeBeforeBoost = null
         try {

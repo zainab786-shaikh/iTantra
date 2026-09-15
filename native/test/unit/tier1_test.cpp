@@ -263,7 +263,7 @@ ITEST(no_head_and_two_top_class_concepts_are_intent_none) {
 ITEST(rule_buckets_are_sorted_by_rule_priority_and_the_first_match_wins) {
     u32 n = 0u;
     const Rule* bucket = fx().rules.bucket(cid("send"), n);
-    ITEST_EQ(n, 4u);
+    ITEST_EQ(n, 5u);
     for (u32 i = 0u; bucket != nullptr && i + 1u < n; ++i) ITEST_TRUE(bucket[i].rule_priority > bucket[i + 1u].rule_priority);
     ITEST_EQ(bucket == nullptr ? 0u : bucket[0].rule_priority, 200u);
 
@@ -846,7 +846,7 @@ ITEST(the_rule_compiler_rejects_malformed_tables_and_accepts_the_fixture) {
     const std::string src     = fx().base.lang.src_dir;
     const std::string answers = src + "/sender/answers.tsv";
     const rulec::CompileResult ok = rulec::compile(src + "/common", src + "/sender/rules.tsv", answers);
-    ITEST_TRUE(ok.ok && ok.rule_count == 16u && ok.answer_count == 1u);
+    ITEST_TRUE(ok.ok && ok.rule_count == 20u && ok.answer_count == 1u);
     std::string built;
     ITEST_TRUE(langfx::read_file(fx().packs_dir + "/sender/rules.bin", built));
     ITEST_TRUE(built.size() == ok.rules_bin.size() && std::memcmp(built.data(), ok.rules_bin.data(), built.size()) == 0);

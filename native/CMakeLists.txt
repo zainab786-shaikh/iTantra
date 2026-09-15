@@ -410,4 +410,4 @@ set_tests_properties(conformance.c33 PROPERTIES TIMEOUT 1800)
 add_test(NAME rulec.accepts.fixture
          COMMAND itantra-rulec --common "${ITANTRA_FIXTURE_SRC}/common"
                  --rules "${ITANTRA_FIXTURE_SRC}/sender/rules.tsv" --answers "${ITANTRA_FIXTURE_SRC}/sender/answers.tsv")
-set_tests_properties(rulec.accepts.fixture PROPERTIES PASS_REGULAR_EXPRESSION "rulec: OK  16 rules, 1 answers")
+set_tests_properties(rulec.accepts.fixture PROPERTIES PASS_REGULAR_EXPRESSION "rulec: OK  20 rules, 1 answers")

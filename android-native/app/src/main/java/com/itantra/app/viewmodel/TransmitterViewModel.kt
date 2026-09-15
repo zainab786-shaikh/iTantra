@@ -45,6 +45,23 @@ import java.io.File
 
 private const val TAG = "TransmitterViewModel"
 
+/** The confidence passed for text from the real installed decoder: the per-mille ceiling of the pack thresholds. */
+internal const val STT_DECODER_CONFIDENCE = 1000L
+
+/**
+ * STT confidence handed to tier selection (`tier §5.8`, C-25).
+ *
+ * The recogniser (sherpa-onnx offline CTC) returns no score, so there is nothing
+ * to compare with the pack threshold. Passing CONFIDENCE_UNAVAILABLE for every
+ * utterance made Tier 1 — and with it cross-language (mother-tongue) delivery —
+ * unreachable from live speech. Text from the real installed decoder is
+ * therefore passed as meeting the bar, and Tier 1 stays gated by the read-back
+ * check (R1 coverage, R2, similarity bar). The placeholder backend, which
+ * recognises nothing, stays CONFIDENCE_UNAVAILABLE and can never select Tier 1.
+ */
+internal fun sttConfidenceFor(kind: SttEngineKind): Long =
+    if (kind == SttEngineKind.SHERPA_ONNX) STT_DECODER_CONFIDENCE else NativeBridge.CONFIDENCE_UNAVAILABLE
+
 /**
  * Direct port of src/hooks/useTransmitterController.ts's state and
  * lifecycle, replacing React state/refs with a plain Kotlin state holder
@@ -364,14 +381,10 @@ class TransmitterViewModel(
 
             val engineKind = sttProvider.status.kind
 
-            // The recogniser reports no confidence, and none is invented here:
-            // CONFIDENCE_UNAVAILABLE is below every pack threshold, so live
-            // speech never selects Tier 1 (`tier §5.8`, contract C-25) until a
-            // recogniser supplies one on the pack's scale.
             val send = transmit(
                 text = text,
                 languageCode = languageCode,
-                sttConfidence = NativeBridge.CONFIDENCE_UNAVAILABLE,
+                sttConfidence = sttConfidenceFor(engineKind),
                 latencyMs = latencyMs,
                 simulated = engineKind == SttEngineKind.SIMULATED,
             )

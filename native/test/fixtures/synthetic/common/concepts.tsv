@@ -34,3 +34,8 @@
 71	minor	SEVERITY	MODIFIER	-
 72	urgent	SEVERITY	MODIFIER	-
 80	query_count	-	ACTION	-
+28	help	OBJECT	ENTITY	-
+29	medical_assistance	OBJECT	ENTITY	MEDICAL
+54	move_away	-	ACTION	-
+55	call	-	ACTION	-
+64	dangerous	STATE	STATE	-

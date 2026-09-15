@@ -121,6 +121,36 @@ class NativeConformanceTest {
         assertEquals(1, critical.received.priority)
     }
 
+    /** SIH demo phrases: English Tier 1 clauses rendered for a Hindi listener; general messages stay Tier 2. */
+    @Test
+    fun demoPhrasesRenderInHindi() {
+        val tier1 = mapOf(
+            "Fire at the north gate" to "उत्तर द्वार पर आग",
+            "Send an ambulance to the hospital" to "अस्पताल में एम्बुलेंस भेजो",
+            "Police move away" to "पुलिस दूर हटो",
+            "Send help immediately" to "मदद तुरंत भेजो",
+            "The situation is dangerous" to "स्थिति खतरनाक है",
+            "Call the police" to "पुलिस को बुलाओ",
+            "Send medical assistance" to "चिकित्सा सहायता भेजो",
+        )
+        for ((text, hindi) in tier1) {
+            engine.beginLoopbackSession()
+            val d = roundTrip("en", text, 900, listener = "hi").single()
+            val rendered = String(d.received.text, Charsets.UTF_8)
+            android.util.Log.i("NativeConformanceTest", "demo \"$text\" -> tier ${d.sent.tier} ${d.sent.priority} \"$rendered\"")
+            assertEquals(text, 1, d.sent.tier)
+            assertEquals(text, hindi, rendered)
+        }
+        for (text in listOf("There is a fire at the hospital", "Hello this is a test message", "Testing the voice communication system",
+            "The weather is good today", "Please send the location", "I am waiting near the main entrance",
+            "The package has arrived", "Everything is working correctly")) {
+            engine.beginLoopbackSession()
+            val d = roundTrip("en", text, 900, listener = "hi").single()
+            assertEquals(text, 2, d.sent.tier)
+            assertArrayEquals(text, text.toByteArray(Charsets.UTF_8), d.received.text)
+        }
+    }
+
     @Test
     fun jniBoundaryIsOneCallPerClauseNotPerToken() {
         val sends = NativeBridge.sendCrossings.get()

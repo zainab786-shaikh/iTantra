@@ -43,3 +43,8 @@ critical	critical	base	native
 minor	minor	base	native
 urgent	urgent	base	native
 how many	query_count	base	native
+help	help	base	native
+medical assistance	medical_assistance	base	native
+move away	move_away	base	native
+call	call	base	native
+dangerous	dangerous	base	native

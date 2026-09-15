@@ -52,3 +52,8 @@ urgent	urgent	base	loanword
 कितने	query_count	base	native
 खाली करो	evacuate	base	native
 ढह गया	collapse	base	native
+मदद	help	base	native
+चिकित्सा सहायता	medical_assistance	base	native
+दूर हटो	move_away	base	native
+बुलाओ	call	base	native
+खतरनाक	dangerous	base	native

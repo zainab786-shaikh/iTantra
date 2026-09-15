@@ -42,3 +42,6 @@ market	destination	to the market
 river	destination	to the river
 school	destination	to the school
 relief_camp	destination	to the relief camp
+help	plain	help
+medical_assistance	plain	medical assistance
+dangerous	plain	dangerous
