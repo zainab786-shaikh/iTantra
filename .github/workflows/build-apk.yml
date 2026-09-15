@@ -20,6 +20,20 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up CMake
+        uses: lukka/get-cmake@v4
+        with:
+          cmakeVersion: 3.22.1
+
+      - name: Set up Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure native project
+        run: cmake -G Ninja -S native -B native/build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build native fixture packs
+        run: cmake --build native/build --target itantra-fixtures
+
       - name: Make Gradle executable
         working-directory: android-native
         run: chmod +x gradlew
