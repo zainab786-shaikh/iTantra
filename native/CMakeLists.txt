@@ -402,6 +402,18 @@ add_test(NAME conformance.c01_device
                  --tier-vectors "${CMAKE_CURRENT_SOURCE_DIR}/test/golden/tier_vectors.bin")
 set_tests_properties(conformance.c01_device PROPERTIES SKIP_REGULAR_EXPRESSION "AEAD-NOT-BYPASSED")
 
+# ---------------------------------------------------------------------------
+# Phase 13 — Characterisation (validation contract §6). Recorded, not graded:
+# M-01…M-08, M-23/M-24 [H], M-31, M-33, the pair-script conversation and the
+# loss/reorder recovery sweep. Not a CTest; run it:
+#   compression_bench --packs <fixture out> --fixtures <fixture src> --report x.tsv --json x.json
+# ---------------------------------------------------------------------------
+add_executable(compression_bench test/bench/compression.cpp)
+target_link_libraries(compression_bench PRIVATE itantra-core)
+target_include_directories(compression_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/test")
+target_compile_options(compression_bench PRIVATE ${ITANTRA_HOST_WARNINGS})
+add_dependencies(compression_bench itantra-fixtures)
+
 # C-33: a 100,000-message loopback session through the engine, every nonce logged.
 itantra_fixture_test(conformance.c33 c33_device_test test/conformance/c33_device.cpp
         --packs "${ITANTRA_FIXTURE_OUT}" --fixtures "${ITANTRA_FIXTURE_SRC}")

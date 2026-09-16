@@ -23,8 +23,8 @@ typealias TtsStateListener = (TtsPlaybackState) -> Unit
  * Direct port of src/core/tts/TtsManager.ts.
  *
  * The public TTS interface: resolves packet.language to a voice, loads it
- * on demand (reusing an already-loaded voice for repeated messages in the
- * same language, via TtsEngine's own loadedModelId check), queues normal
+ * on demand (keeping the receiver's own voice and the most recently used
+ * other voice resident — TtsEngine / VoiceCache, Phase 14.1), queues normal
  * messages, lets CRITICAL messages interrupt and jump the queue, and
  * applies Android audio-focus behaviour for each.
  *
@@ -70,6 +70,21 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
     private var volumeBeforeBoost: Int? = null
 
     fun getState(): TtsPlaybackState = state
+
+    /**
+     * The receiver's own render language (Tier 1 output, language-layer spec §10.1): its
+     * voice stays resident once loaded, beside the most recently used other voice.
+     * Changes which voice is kept, never which language a message is spoken in.
+     */
+    fun setPrimaryLanguage(languageCode: String) {
+        engine.setPrimaryVoice(resolveTtsModelForLanguage(languageCode)?.id)
+    }
+
+    /** Test observability (Phase 14.1): voices created, cache hits, resident voice ids, last voice used. */
+    internal val voiceLoads: Int get() = engine.voiceLoads
+    internal val voiceHits: Int get() = engine.voiceHits
+    internal fun residentVoices(): List<String> = engine.residentVoices()
+    internal val lastSpokenWith: String? get() = engine.lastSpokenWith
 
     fun subscribe(listener: TtsStateListener): () -> Unit {
         listeners.add(listener)
@@ -209,11 +224,12 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
         }
 
         requestAudioFocus(isCritical)
-        if (isCritical) boostVolume() else {
-            restoreVolume()
-            raiseIfSilent()
-        }
+        // Unmute before any level change: a muted stream reports volume 0, and setting a
+        // level implicitly unmutes it, which hid the mute from unmuteForPlayback() and it
+        // was never re-applied (found by TtsVoiceResidencyTest on Android 16).
+        if (!isCritical) restoreVolume()
         unmuteForPlayback()
+        if (isCritical) boostVolume() else raiseIfSilent()
 
         setState(
             TtsPlaybackState(
@@ -341,21 +357,24 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
 
     /** Put the operator's media volume back. Safe to call when nothing was boosted. */
     private fun restoreVolume() {
+        // Level first, mute last: setting a level unmutes the stream on some Android versions.
+        volumeBeforeBoost?.let { previous ->
+            volumeBeforeBoost = null
+            try {
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, previous, 0)
+                Log.i(TAG, "media volume restored to ${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}")
+            } catch (e: Exception) {
+                // Best effort; leaving it loud is preferable to crashing here.
+            }
+        }
         if (unmutedForPlayback) {
             unmutedForPlayback = false
             try {
                 audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+                Log.i(TAG, "media stream muted again")
             } catch (e: Exception) {
                 // Best effort.
             }
-        }
-        val previous = volumeBeforeBoost ?: return
-        volumeBeforeBoost = null
-        try {
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, previous, 0)
-            Log.i(TAG, "media volume restored to ${audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)}")
-        } catch (e: Exception) {
-            // Best effort; leaving it loud is preferable to crashing here.
         }
     }
 

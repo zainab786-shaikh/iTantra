@@ -40,11 +40,24 @@ data class SpeakResult(val synthesisMs: Long, val audioDurationMs: Double)
  * expo-audio is an Expo/RN library with no place in a from-scratch native
  * Kotlin app.
  */
-class TtsEngine {
+class TtsEngine(residentVoices: Int = 2) {
     private var tts: OfflineTts? = null
     private var loadedModelId: String? = null
     private var player: MediaPlayer? = null
     private var tempWavFile: File? = null
+
+    /** Model directory per voice id, recorded by [load] for the cache's loader. */
+    private val modelPaths = mutableMapOf<String, String>()
+
+    /**
+     * Resident voices (Phase 14.1): the receiver's own render voice plus the most recently
+     * used other voice, so alternating Tier 1 / Tier 2 output languages stop reloading.
+     */
+    private val voices = VoiceCache<OfflineTts>(
+        capacity = residentVoices,
+        load = { id -> createVoice(modelPaths.getValue(id)) },
+        release = { it.release() },
+    )
 
     val isReady: Boolean
         get() = tts != null
@@ -52,11 +65,37 @@ class TtsEngine {
     val loadedFor: String?
         get() = loadedModelId
 
-    /** Load (or swap to) the voice at [modelPath]. Disposes any previously loaded voice first. */
-    fun load(model: TtsModelDescriptor, modelPath: String) {
-        if (loadedModelId == model.id && tts != null) return
-        disposeNative()
+    /** Voice id of the last [speak] — which voice actually spoke. */
+    var lastSpokenWith: String? = null
+        private set
 
+    /** Voices created so far (cache misses). */
+    val voiceLoads: Int get() = voices.loads
+
+    /** Requests served by an already-resident voice. */
+    val voiceHits: Int get() = voices.hits
+
+    fun residentVoices(): List<String> = voices.residentIds()
+
+    /** The voice that stays resident: the receiver's own render language. Null: none pinned. */
+    fun setPrimaryVoice(modelId: String?) {
+        voices.primary = modelId
+    }
+
+    /**
+     * Make the voice at [modelPath] the active one: a resident voice is reused as is; any
+     * other is created whole (evicting the least recently used non-primary voice first)
+     * before it can be used. If creation throws, no voice is active.
+     */
+    fun load(model: TtsModelDescriptor, modelPath: String) {
+        tts = null
+        loadedModelId = null
+        modelPaths[model.id] = modelPath
+        tts = voices.get(model.id)
+        loadedModelId = model.id
+    }
+
+    private fun createVoice(modelPath: String): OfflineTts {
         val dir = File(modelPath)
         val onnxFile = dir.listFiles()?.firstOrNull { it.name.endsWith(".onnx") }
             ?: throw IllegalStateException("No .onnx model file found in $modelPath")
@@ -76,8 +115,7 @@ class TtsEngine {
             debug = false,
             provider = "cpu",
         )
-        tts = OfflineTts(config = OfflineTtsConfig(model = modelConfig))
-        loadedModelId = model.id
+        return OfflineTts(config = OfflineTtsConfig(model = modelConfig))
     }
 
     /**
@@ -101,6 +139,7 @@ class TtsEngine {
         critical: Boolean = false,
     ): SpeakResult {
         val engine = checkNotNull(tts) { "No TTS voice loaded" }
+        lastSpokenWith = loadedModelId
 
         val synthStart = System.currentTimeMillis()
         val audio = engine.generate(text, sid = 0, speed = 1.0f)
@@ -177,9 +216,9 @@ class TtsEngine {
     private fun disposeNative() {
         player?.release()
         player = null
-        tts?.release()
         tts = null
         loadedModelId = null
+        voices.clear()
     }
 
     /**

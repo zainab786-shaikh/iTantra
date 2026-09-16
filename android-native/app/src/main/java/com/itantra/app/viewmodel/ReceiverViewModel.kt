@@ -46,7 +46,7 @@ class ReceiverViewModel(
 ) {
     private val appContext = context.applicationContext
     val transportName: String = transport.name
-    private val ttsManager = TtsManager(appContext, File(appContext.filesDir, "itantra-tts-models"))
+    internal val ttsManager = TtsManager(appContext, File(appContext.filesDir, "itantra-tts-models"))
 
     /** Maps a TtsManager request id back to the history row it belongs to - identity for normal messages, a synthetic id for replays. */
     private val correlation = mutableMapOf<String, String>()
@@ -63,8 +63,14 @@ class ReceiverViewModel(
     private val _connected = MutableStateFlow(transport.isConnected())
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
+    init {
+        ttsManager.setPrimaryLanguage(_language.value)
+    }
+
     fun setLanguage(code: String) {
         _language.value = code
+        // Phase 14.1: this phone's Tier 1 render voice is the one kept resident.
+        ttsManager.setPrimaryLanguage(code)
     }
 
     /** Test hook only (Phase 12 pair conformance): every native receive result, emitted or not, as it arrives. */
