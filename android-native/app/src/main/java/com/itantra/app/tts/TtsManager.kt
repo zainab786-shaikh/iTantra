@@ -4,11 +4,17 @@ import android.content.Context
 import android.media.AudioManager
 import android.util.Log
 import com.itantra.app.config.resolveTtsModelForLanguage
+import com.itantra.app.core.ModelReadiness
 import com.itantra.app.packet.PacketPriority
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -16,6 +22,9 @@ import java.io.File
 import java.util.UUID
 
 private const val TAG = "TtsManager"
+
+/** Phase 14.2: how long a language selection must stand before its voice is warmed. */
+private const val WARMUP_SETTLE_MS = 300L
 
 typealias TtsStateListener = (TtsPlaybackState) -> Unit
 
@@ -71,13 +80,74 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
 
     fun getState(): TtsPlaybackState = state
 
+    @Volatile private var primaryLanguage: String? = null
+
+    private val _primaryVoice = MutableStateFlow(ModelReadiness.NOT_LOADED)
+
+    /** Phase 14.2: readiness of the receiver's own (pinned) voice, for the UI. */
+    val primaryVoice: StateFlow<ModelReadiness> = _primaryVoice.asStateFlow()
+
+    /** Bumped on every primary change, so a slower warm-up for an older language cannot overwrite the state. */
+    private val warmupGeneration = java.util.concurrent.atomic.AtomicInteger()
+
+    /** The pending warm-up; replaced while still waiting out [WARMUP_SETTLE_MS]. */
+    private var warmupJob: Job? = null
+
     /**
      * The receiver's own render language (Tier 1 output, language-layer spec §10.1): its
      * voice stays resident once loaded, beside the most recently used other voice.
      * Changes which voice is kept, never which language a message is spoken in.
+     *
+     * Phase 14.2: with [prewarm], that voice is also loaded in the background now, so the
+     * first message does not pay the voice load (1.0–1.1 s S22, 2.1–2.5 s S7). Only this one
+     * voice — never the other languages. The warm-up takes free cache room only, so it cannot
+     * evict a voice in use; if it fails, the first message loads the voice as before.
      */
-    fun setPrimaryLanguage(languageCode: String) {
+    fun setPrimaryLanguage(languageCode: String, prewarm: Boolean = true) {
+        primaryLanguage = languageCode
         engine.setPrimaryVoice(resolveTtsModelForLanguage(languageCode)?.id)
+        val generation = warmupGeneration.incrementAndGet()
+        synchronized(this) {
+            // A selection made while the previous one is still settling replaces it, so a
+            // language picked right after launch does not also load the default voice.
+            warmupJob?.cancel()
+            if (!prewarm) {
+                _primaryVoice.value = ModelReadiness.NOT_LOADED
+                return
+            }
+            warmupJob = scope.launch(Dispatchers.IO) {
+                delay(WARMUP_SETTLE_MS)
+                warmPrimary(generation)
+            }
+        }
+    }
+
+    private fun warmPrimary(generation: Int) {
+        fun publish(state: ModelReadiness) {
+            if (warmupGeneration.get() == generation) _primaryVoice.value = state
+        }
+        // Read at run time: a burst of language changes warms only the latest one.
+        val language = primaryLanguage ?: return
+        val model = resolveTtsModelForLanguage(language)
+        val path = model?.let { models.resolvePath(it) }
+        if (model == null || path == null) {
+            publish(ModelReadiness.UNAVAILABLE)
+            return
+        }
+        if (engine.isResident(model.id)) {
+            publish(ModelReadiness.READY)
+            return
+        }
+        publish(ModelReadiness.LOADING)
+        val started = System.currentTimeMillis()
+        try {
+            val resident = engine.prewarm(model, path)
+            Log.i(TAG, "voice warm-up ${model.id}: ${if (resident) "resident" else "skipped (no free room)"} in ${System.currentTimeMillis() - started} ms")
+            publish(if (resident) ModelReadiness.READY else ModelReadiness.NOT_LOADED)
+        } catch (e: Exception) {
+            Log.w(TAG, "voice warm-up ${model.id} failed; it will load when first needed", e)
+            publish(ModelReadiness.UNAVAILABLE)
+        }
     }
 
     /** Test observability (Phase 14.1): voices created, cache hits, resident voice ids, last voice used. */
@@ -164,7 +234,9 @@ class TtsManager(context: Context, ttsModelsRoot: File) {
         // the operator's volume back here rather than leaving the device
         // pinned at maximum after the app closes.
         restoreVolume()
-        engine.dispose()
+        // Off the caller's (main) thread: releasing waits for a synthesis in progress, which
+        // can take seconds on a low-end phone.
+        Thread({ engine.dispose() }, "tts-dispose").start()
     }
 
     private suspend fun drain() {

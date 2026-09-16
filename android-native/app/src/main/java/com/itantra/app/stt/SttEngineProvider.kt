@@ -69,6 +69,10 @@ class SttEngineProvider(private val modelsRootDir: File) {
      */
     @Synchronized
     fun transcribe(samples: FloatArray, languageCode: String): SttTranscription {
+        // Phase 14.2: an utterance that arrives before any load has started is not handed to
+        // the placeholder (which would replace the words with a notice): the model is loaded
+        // lazily here first. A language already known to have no decoder stays on the placeholder.
+        if (active === placeholder && languageCode !in unsupported) prepare(languageCode)
         return try {
             active.transcribe(samples, languageCode)
         } catch (e: Exception) {

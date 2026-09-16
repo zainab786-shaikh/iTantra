@@ -36,8 +36,12 @@ class VoiceCache<V : Any>(
     /** Access order: least recently used first. */
     private val voices = LinkedHashMap<String, V>(capacity + 1, 0.75f, true)
 
-    /** The voice id that is never evicted (the receiver's render language); null: plain LRU. */
-    @get:Synchronized @set:Synchronized
+    /**
+     * The voice id that is never evicted (the receiver's render language); null: plain LRU.
+     * Volatile, not synchronised: setting it must never wait for a voice load in progress
+     * (it is set from the main thread when the operator picks a language).
+     */
+    @Volatile
     var primary: String? = null
 
     /** Voices created so far — a cache miss is a load. */
@@ -50,12 +54,35 @@ class VoiceCache<V : Any>(
     var hits: Int = 0
         private set
 
+    /** Set by [clear]: the owner is disposed, so nothing may be loaded any more. */
+    private var closed = false
+
     @Synchronized
     fun residentIds(): List<String> = voices.keys.toList()
+
+    @Synchronized
+    fun isResident(id: String): Boolean = voices.containsKey(id)
+
+    /**
+     * Phase 14.2 warm-up: load [id] ahead of its first use, but only into free room — a
+     * prewarm never evicts, so it can never release a voice that is speaking. Returns true
+     * if [id] is resident afterwards. A load that throws leaves the cache unchanged and is
+     * rethrown; the voice is then simply loaded lazily by [get] when first needed.
+     */
+    @Synchronized
+    fun prewarm(id: String): Boolean {
+        if (closed) return false
+        if (voices.containsKey(id)) return true
+        if (voices.size >= capacity) return false
+        voices[id] = load(id)
+        loads++
+        return true
+    }
 
     /** The resident voice for [id], loading it (and evicting if full) on a miss. */
     @Synchronized
     fun get(id: String): V {
+        check(!closed) { "voice cache is closed" }
         voices[id]?.let {
             hits++
             return it
@@ -67,9 +94,13 @@ class VoiceCache<V : Any>(
         return voice
     }
 
-    /** Release every resident voice. */
+    /**
+     * Release every resident voice and close the cache. Serialised with [get] and [prewarm],
+     * so a warm-up still loading when the owner is disposed is released here, never leaked.
+     */
     @Synchronized
     fun clear() {
+        closed = true
         val all = voices.values.toList()
         voices.clear()
         all.forEach(release)

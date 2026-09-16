@@ -60,6 +60,8 @@ fun TtsStatusCard(
      * English, 64.1 MB" while fetching a 114 MB Odia voice.
      */
     installingLanguage: String? = null,
+    /** Phase 14.2: this phone's own voice is being loaded in the background (nothing is playing). */
+    voiceLoading: Boolean = false,
 ) {
     var dots by remember { mutableStateOf("") }
     LaunchedEffect(state.phase) {
@@ -118,6 +120,7 @@ fun TtsStatusCard(
         state.isCritical -> "CRITICAL ALERT"
         state.phase == TtsPlaybackPhase.SPEAKING -> "SPEAKING"
         state.phase == TtsPlaybackPhase.LOADING_VOICE -> "PREPARING VOICE"
+        voiceLoading && state.phase == TtsPlaybackPhase.IDLE && !isDownloading -> "PREPARING VOICE"
         isDownloading -> "DOWNLOADING VOICE PACK $currentPercent%"
         state.phase == TtsPlaybackPhase.ERROR -> "SPEECH UNAVAILABLE"
         isVoiceMissing -> "SETUP NEEDED"
@@ -135,7 +138,8 @@ fun TtsStatusCard(
             Box(modifier = Modifier.size(7.dp).background(tint, CircleShape))
             androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp, 0.dp))
             Text(title, color = tint, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, modifier = Modifier.weight(1f))
-            if (state.phase == TtsPlaybackPhase.SPEAKING || state.phase == TtsPlaybackPhase.LOADING_VOICE || isDownloading) {
+            if (state.phase == TtsPlaybackPhase.SPEAKING || state.phase == TtsPlaybackPhase.LOADING_VOICE || isDownloading ||
+                (voiceLoading && state.phase == TtsPlaybackPhase.IDLE)) {
                 CircularProgressIndicator(modifier = Modifier.size(14.dp), color = tint, strokeWidth = 2.dp)
             }
         }

@@ -46,8 +46,17 @@ class TtsEngine(residentVoices: Int = 2) {
     private var player: MediaPlayer? = null
     private var tempWavFile: File? = null
 
+    /**
+     * Held for every synthesis and for the release of the voices, so a voice is never
+     * released while it is generating (that aborted the process in native code when the
+     * receiver was disposed mid-message, found during Phase 14.2 validation).
+     */
+    private val nativeLock = Any()
+
+    @Volatile private var disposed = false
+
     /** Model directory per voice id, recorded by [load] for the cache's loader. */
-    private val modelPaths = mutableMapOf<String, String>()
+    private val modelPaths = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     /**
      * Resident voices (Phase 14.1): the receiver's own render voice plus the most recently
@@ -76,6 +85,19 @@ class TtsEngine(residentVoices: Int = 2) {
     val voiceHits: Int get() = voices.hits
 
     fun residentVoices(): List<String> = voices.residentIds()
+
+    /**
+     * Phase 14.2: load [model] into free room ahead of its first message, without evicting
+     * and without touching the active voice. Safe to call from a background thread: the cache
+     * serialises it with [load], so a voice is created at most once and never used half-built.
+     * True if the voice is resident afterwards.
+     */
+    fun prewarm(model: TtsModelDescriptor, modelPath: String): Boolean {
+        modelPaths[model.id] = modelPath
+        return voices.prewarm(model.id)
+    }
+
+    fun isResident(modelId: String): Boolean = voices.isResident(modelId)
 
     /** The voice that stays resident: the receiver's own render language. Null: none pinned. */
     fun setPrimaryVoice(modelId: String?) {
@@ -142,7 +164,10 @@ class TtsEngine(residentVoices: Int = 2) {
         lastSpokenWith = loadedModelId
 
         val synthStart = System.currentTimeMillis()
-        val audio = engine.generate(text, sid = 0, speed = 1.0f)
+        val audio = synchronized(nativeLock) {
+            check(!disposed) { "TTS engine disposed" }
+            engine.generate(text, sid = 0, speed = 1.0f)
+        }
         val synthesisMs = System.currentTimeMillis() - synthStart
         val audioDurationMs = if (audio.samples.isNotEmpty()) {
             (audio.samples.size.toDouble() / audio.sampleRate) * 1000.0
@@ -216,9 +241,12 @@ class TtsEngine(residentVoices: Int = 2) {
     private fun disposeNative() {
         player?.release()
         player = null
-        tts = null
-        loadedModelId = null
-        voices.clear()
+        synchronized(nativeLock) {
+            disposed = true
+            tts = null
+            loadedModelId = null
+            voices.clear()
+        }
     }
 
     /**

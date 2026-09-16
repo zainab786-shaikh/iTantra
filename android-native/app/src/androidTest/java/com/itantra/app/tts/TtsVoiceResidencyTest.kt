@@ -48,7 +48,8 @@ class TtsVoiceResidencyTest {
             if (s.phase == TtsPlaybackPhase.ERROR) errors.add("${s.requestId}: ${s.error}")
             if (s.phase == TtsPlaybackPhase.SPEAKING) s.requestId?.let(spoken::add)
         }
-        tts.setPrimaryLanguage("hi-IN")
+        // Phase 14.1 counts are exact only without the Phase 14.2 warm-up (ColdStartWarmupTest covers it).
+        tts.setPrimaryLanguage("hi-IN", prewarm = false)
     }
 
     @After

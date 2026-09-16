@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.itantra.app.core.ModelReadiness
 import com.itantra.app.native.NativeBridge
 import com.itantra.app.native.NativeEngine
 import com.itantra.app.transport.LORA_SF12_BPS
@@ -17,7 +18,9 @@ import com.itantra.app.transport.UdpTransport
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.security.SecureRandom
 
@@ -107,6 +110,18 @@ class AppViewModel @JvmOverloads constructor(
     )
 
     init {
+        // Phase 14.2 cold start: the speech model already loads in the background as the
+        // transmitter starts; this phone's own voice is warmed right after it, not alongside
+        // it, so the two loads never overlap. Bounded, so a stuck STT load cannot hold it back.
+        viewModelScope.launch {
+            withTimeoutOrNull(STARTUP_WARMUP_WAIT_MS) {
+                transmitter.sttReadiness.first { it == ModelReadiness.READY || it == ModelReadiness.UNAVAILABLE }
+            }
+            receiver.enableVoiceWarmup()
+        }
+    }
+
+    init {
         // The receiver's language is what this phone announces in HELLO.
         if (udp != null) {
             viewModelScope.launch {
@@ -178,6 +193,9 @@ class AppViewModel @JvmOverloads constructor(
          */
         const val USE_REAL_LINK = true
         const val KEY_THROTTLE_BPS = "throttle-bps"
+
+        /** Phase 14.2: the longest the voice warm-up waits for the speech model to finish loading. */
+        const val STARTUP_WARMUP_WAIT_MS = 20_000L
         const val KEY_THROTTLE_ON = "throttle-on"
 
         /** PSK provisioned at pairing (`packet §6.7`): 64 hex digits in the app's files dir. */

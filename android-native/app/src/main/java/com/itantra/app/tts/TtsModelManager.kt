@@ -31,7 +31,8 @@ import kotlin.math.roundToInt
  * `descriptor.source.kind`.
  */
 class TtsModelManager(private val root: File) {
-    private val cachedPaths = mutableMapOf<String, String>()
+    // Concurrent: read by the playback queue and by the Phase 14.2 voice warm-up.
+    private val cachedPaths = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     /** Where the voice is installed, or null if it is not. */
     fun resolvePath(model: TtsModelDescriptor): String? {

@@ -143,6 +143,85 @@ class VoiceCacheTest {
         assertTrue(c.residentIds().isEmpty())
     }
 
+    // ---- Phase 14.2 warm-up ----
+
+    @Test
+    fun `prewarm loads the voice once and the first message is a hit`() {
+        val c = cache(primary = "hi")
+        assertTrue(c.prewarm("hi"))
+        assertEquals(1, c.loads)
+        c.get("hi")
+        assertEquals(1, c.loads)
+        assertEquals(1, c.hits)
+    }
+
+    @Test
+    fun `prewarm of a resident voice does nothing`() {
+        val c = cache(primary = "hi")
+        c.get("hi")
+        assertTrue(c.prewarm("hi"))
+        assertTrue(c.prewarm("hi"))
+        assertEquals(1, c.loads)
+        assertEquals(1, created.size)
+    }
+
+    @Test
+    fun `prewarm never evicts a resident voice`() {
+        val c = cache(primary = "ta")
+        val hi = c.get("hi")
+        val en = c.get("en")
+        assertTrue("no room: skipped", !c.prewarm("ta"))
+        assertEquals(2, c.loads)
+        assertTrue(!hi.released && !en.released)
+        assertEquals(setOf("hi", "en"), c.residentIds().toSet())
+    }
+
+    @Test
+    fun `a failed prewarm leaves the cache unchanged and the voice loads lazily later`() {
+        val c = cache(primary = "hi")
+        failNext = true
+        try {
+            c.prewarm("hi")
+            fail("prewarm should have thrown")
+        } catch (e: IllegalStateException) {
+            // expected
+        }
+        assertTrue(c.residentIds().isEmpty())
+        assertEquals(0, c.loads)
+        assertEquals("hi", c.get("hi").id)
+        assertEquals(1, c.loads)
+    }
+
+    @Test
+    fun `nothing loads after clear, so a late warm-up cannot leak a voice`() {
+        val c = cache(primary = "hi")
+        c.clear()
+        assertTrue(!c.prewarm("hi"))
+        assertTrue(created.isEmpty())
+        try {
+            c.get("hi")
+            fail("get after clear should throw")
+        } catch (e: IllegalStateException) {
+            // expected
+        }
+        assertTrue(created.isEmpty())
+    }
+
+    @Test
+    fun `concurrent prewarm and first use create exactly one voice`() {
+        val c = VoiceCache(
+            capacity = 2,
+            load = { id -> Thread.sleep(50); Voice(id).also { synchronized(created) { created.add(it) } } },
+            release = { it.released = true },
+        ).also { it.primary = "hi" }
+        val threads = (1..8).map { i -> Thread { if (i % 2 == 0) c.prewarm("hi") else c.get("hi") } }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        assertEquals(1, created.size)
+        assertEquals(1, c.loads)
+        assertEquals(listOf("hi"), c.residentIds())
+    }
+
     @Test
     fun `capacity one behaves as the previous single-voice engine`() {
         val c = cache(capacity = 1, primary = "hi")

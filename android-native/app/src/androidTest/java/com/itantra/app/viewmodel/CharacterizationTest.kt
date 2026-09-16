@@ -299,6 +299,116 @@ class CharacterizationTest {
     }
 
     // -----------------------------------------------------------------------
+    // Phase 14.2 cold start: the first real interaction after launch, in a fresh process.
+    //   -e role synth            write the STT test audio once (en-IN) to files/
+    //   -e role stt  -e at <ms>  create the app, wait <ms>, first + warm STT through the app's provider
+    //   -e role tts  -e at <ms>  create the app (receiver hi-IN), wait <ms>, first + warm message -> audio
+    //   -e role idle             startup CPU (0-15 s), idle CPU (15-45 s), peak RSS
+    // The app's own STT provider is read reflectively so the same test measures builds
+    // with and without warm-up hooks.
+    // -----------------------------------------------------------------------
+
+    private fun audioFile(i: Int) = File(context.filesDir, "coldstart-en-$i.f32")
+
+    private fun sttProviderOf(app: AppViewModel): SttEngineProvider =
+        TransmitterViewModel::class.java.getDeclaredField("sttProvider").let { it.isAccessible = true; it.get(app.transmitter) as SttEngineProvider }
+
+    @Test
+    fun coldStart() {
+        environment()
+        val role = args.getString("role") ?: "idle"
+        val at = args.getString("at")?.toLong() ?: 0L
+        if (role == "synth") {
+            val tts = offlineTts(ttsVoiceDir("en-IN")!!)
+            listOf("fire at the north gate", "call the police").forEachIndexed { i, text ->
+                val samples = speech16k(tts, text)
+                val buf = java.nio.ByteBuffer.allocate(samples.size * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                samples.forEach { buf.putFloat(it) }
+                audioFile(i).writeBytes(buf.array())
+            }
+            tts.release()
+            return
+        }
+        val inputs = (0..1).map { i ->
+            val bytes = java.nio.ByteBuffer.wrap(audioFile(i).readBytes()).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            FloatArray(bytes.remaining() / 4) { bytes.getFloat() }
+        }
+        System.gc()
+        val cpu0 = Process.getElapsedCpuTime()
+        val t0 = SystemClock.elapsedRealtime()
+        lateinit var app: AppViewModel
+        instrumentation.runOnMainSync {
+            app = AppViewModel(context.applicationContext as Application)
+            app.receiver.setLanguage("hi-IN")
+        }
+        record("COLD", (SystemClock.elapsedRealtime() - t0).toDouble(), "ms", "app view models constructed on the main thread (native engine incl.)")
+        fun sleepUntil(ms: Long) { val d = t0 + ms - SystemClock.elapsedRealtime(); if (d > 0) Thread.sleep(d) }
+        when (role) {
+            "stt" -> {
+                sleepUntil(at)
+                val provider = sttProviderOf(app)
+                var t = SystemClock.elapsedRealtime()
+                val first = provider.transcribe(inputs[0], "en-IN")
+                val firstMs = SystemClock.elapsedRealtime() - t
+                t = SystemClock.elapsedRealtime()
+                val second = provider.transcribe(inputs[1], "en-IN")
+                val warmMs = SystemClock.elapsedRealtime() - t
+                Log.i(TAG, "COLD stt first=\"${first.text}\" warm=\"${second.text}\"")
+                assertTrue("first utterance decoded by the real model, not lost", first.text.contains("fire"))
+                record("COLD", firstMs.toDouble(), "ms", "first STT, utterance at +$at ms after launch")
+                record("COLD", warmMs.toDouble(), "ms", "second STT (warm), launch +$at ms")
+            }
+            "tts" -> {
+                val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                val started = CountDownLatch(2)
+                val playing = mutableListOf<Long>()
+                var active = false
+                val callback = object : AudioManager.AudioPlaybackCallback() {
+                    override fun onPlaybackConfigChanged(configs: MutableList<android.media.AudioPlaybackConfiguration>) {
+                        if (configs.isNotEmpty() && !active) synchronized(playing) { playing.add(SystemClock.elapsedRealtime()); started.countDown() }
+                        active = configs.isNotEmpty()
+                    }
+                }
+                audio.registerAudioPlaybackCallback(callback, Handler(Looper.getMainLooper()))
+                sleepUntil(at)
+                val tts = app.receiver.ttsManager
+                val requested = mutableListOf<Long>()
+                for ((i, text) in listOf("उत्तर द्वार पर आग", "पुलिस को बुलाओ").withIndex()) {
+                    requested.add(SystemClock.elapsedRealtime())
+                    tts.speakText(text, "hi-IN", com.itantra.app.packet.PacketPriority.NORMAL, "cold-$i")
+                    await("message $i playing", 60_000) { synchronized(playing) { playing.size > i } }
+                    await("message $i finished", 60_000) { tts.getState().phase == com.itantra.app.tts.TtsPlaybackPhase.IDLE }
+                    Thread.sleep(300)
+                }
+                audio.unregisterAudioPlaybackCallback(callback)
+                record("COLD", (playing[0] - requested[0]).toDouble(), "ms", "first message -> audio playing (hi-IN), message at +$at ms after launch")
+                record("COLD", (playing[1] - requested[1]).toDouble(), "ms", "second message -> audio playing (warm), launch +$at ms")
+                record("COLD", tts.voiceLoads.toDouble(), "voice loads", "during the run, launch +$at ms")
+            }
+            "idle" -> {
+                val provider = sttProviderOf(app)
+                var sttReadyAt = -1L
+                while (SystemClock.elapsedRealtime() < t0 + 15_000) {
+                    if (sttReadyAt < 0 && provider.status.kind == SttEngineKind.SHERPA_ONNX) sttReadyAt = SystemClock.elapsedRealtime() - t0
+                    Thread.sleep(20)
+                }
+                val cpuStartup = Process.getElapsedCpuTime() - cpu0
+                val rssStartup = peakRssMb()
+                val cpu1 = Process.getElapsedCpuTime()
+                sleepUntil(45_000)
+                val cpuIdle = Process.getElapsedCpuTime() - cpu1
+                record("COLD", sttReadyAt.toDouble(), "ms", "launch -> STT model loaded (en-IN, background)")
+                record("COLD", app.receiver.ttsManager.voiceLoads.toDouble(), "voices loaded", "by +45 s with no traffic")
+                record("COLD", cpuStartup.toDouble(), "ms CPU", "process CPU, launch -> +15 s")
+                record("COLD", 100.0 * cpuIdle / 30_000, "% of one core", "idle after startup (+15 s -> +45 s)")
+                record("COLD", rssStartup, "MB peak RSS", "by +15 s")
+                record("COLD", rssMb(), "MB RSS", "at +45 s")
+                record("COLD", peakRssMb(), "MB peak RSS", "by +45 s")
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Phase 14.1 RAM gate: can two TTS voices stay resident next to the app's STT model?
     // `-e stt <STT language>` `-e voices <lang,lang>`. Android's own low-memory signal decides.
     // -----------------------------------------------------------------------

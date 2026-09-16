@@ -68,6 +68,7 @@ fun ReceiverScreen(
 ) {
     val messages by receiver.messages.collectAsState()
     val ttsState by receiver.ttsState.collectAsState()
+    val voiceReadiness by receiver.voiceReadiness.collectAsState()
     val connected by receiver.connected.collectAsState()
     val language by receiver.language.collectAsState()
     val scope = rememberCoroutineScope()
@@ -180,6 +181,7 @@ fun ReceiverScreen(
                 state = ttsState,
                 selectedLanguage = language,
                 voiceStatus = voiceStatus,
+                voiceLoading = voiceReadiness == com.itantra.app.core.ModelReadiness.LOADING,
                 onInstallVoice = { languageCode -> installVoice(languageCode, replayPacketId = null) },
                 installing = installingLanguage != null,
                 installPercent = installPercent,

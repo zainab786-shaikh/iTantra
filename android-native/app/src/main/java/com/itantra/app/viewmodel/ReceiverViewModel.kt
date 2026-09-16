@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.itantra.app.config.DEFAULT_LANGUAGE
 import com.itantra.app.config.findLanguage
+import com.itantra.app.core.ModelReadiness
 import com.itantra.app.device.CriticalAlert
 import com.itantra.app.native.NativeEngine
 import com.itantra.app.native.NativeReceiveResult
@@ -63,14 +64,31 @@ class ReceiverViewModel(
     private val _connected = MutableStateFlow(transport.isConnected())
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
+    /** Phase 14.2: false until the owner lets the voice warm-up start (see [enableVoiceWarmup]). */
+    @Volatile private var voiceWarmup = false
+
     init {
+        // Pinned now; warmed once enableVoiceWarmup() is called.
+        ttsManager.setPrimaryLanguage(_language.value, prewarm = false)
+    }
+
+    /**
+     * Phase 14.2: start warming this phone's own voice, and keep it warm across language
+     * changes. AppViewModel calls this once the speech model has finished loading, so the
+     * two large loads do not overlap (peak RSS, CPU contention on low-end phones).
+     */
+    fun enableVoiceWarmup() {
+        voiceWarmup = true
         ttsManager.setPrimaryLanguage(_language.value)
     }
+
+    /** Phase 14.2: readiness of this phone's own voice, for the receiver screen. */
+    val voiceReadiness: StateFlow<ModelReadiness> = ttsManager.primaryVoice
 
     fun setLanguage(code: String) {
         _language.value = code
         // Phase 14.1: this phone's Tier 1 render voice is the one kept resident.
-        ttsManager.setPrimaryLanguage(code)
+        ttsManager.setPrimaryLanguage(code, prewarm = voiceWarmup)
     }
 
     /** Test hook only (Phase 12 pair conformance): every native receive result, emitted or not, as it arrives. */

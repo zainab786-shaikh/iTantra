@@ -13,6 +13,7 @@ import com.itantra.app.config.findLanguage
 import com.itantra.app.config.resolveModelForLanguage
 import com.itantra.app.core.INITIAL_TRANSCRIPTION_STATE
 import com.itantra.app.core.LogEntry
+import com.itantra.app.core.ModelReadiness
 import com.itantra.app.core.TranscriptionResult
 import com.itantra.app.core.TranscriptionState
 import com.itantra.app.core.TransmitterStatus
@@ -171,6 +172,15 @@ class TransmitterViewModel(
     private val _modelStatus = MutableStateFlow<SttModelStatus>(SttModelStatus.NotInstalled)
     val modelStatus: StateFlow<SttModelStatus> = _modelStatus.asStateFlow()
 
+    private val _sttReadiness = MutableStateFlow(ModelReadiness.NOT_LOADED)
+
+    /**
+     * Phase 14.2: whether the speech model for the selected language is loaded. It loads in
+     * the background at startup and on a language change; PTT stays usable meanwhile — an
+     * utterance finished while LOADING waits for the load and is then decoded, never dropped.
+     */
+    val sttReadiness: StateFlow<ModelReadiness> = _sttReadiness.asStateFlow()
+
     /** The decoder serving the currently selected language. Mirrors `activeModel` in useTransmitterController.ts. */
     val activeModel: SttModelDescriptor
         get() = resolveModelForLanguage(_language.value) ?: NEMO_CTC_ENGLISH
@@ -210,7 +220,14 @@ class TransmitterViewModel(
     private suspend fun resolveLanguageModel(languageCode: String) {
         val descriptor = resolveModelForLanguage(languageCode) ?: NEMO_CTC_ENGLISH
         _modelStatus.value = checkSttModelStatus(modelsRootDir, descriptor)
+        if (_language.value == languageCode) _sttReadiness.value = ModelReadiness.LOADING
+        val started = System.currentTimeMillis()
         val status = sttProvider.prepare(languageCode)
+        // A later language change owns the state; only the current language reports.
+        if (_language.value == languageCode) {
+            _sttReadiness.value = if (status.kind == SttEngineKind.SHERPA_ONNX) ModelReadiness.READY else ModelReadiness.UNAVAILABLE
+        }
+        Log.i(TAG, "speech model for $languageCode: ${status.kind} in ${System.currentTimeMillis() - started} ms")
         patch(engine = status.kind)
     }
 

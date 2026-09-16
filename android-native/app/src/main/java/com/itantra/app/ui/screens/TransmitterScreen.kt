@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.itantra.app.R
 import com.itantra.app.config.findLanguage
+import com.itantra.app.core.ModelReadiness
 import com.itantra.app.core.TransmitterStatus
 import com.itantra.app.ui.components.ConnectionBadge
 import com.itantra.app.ui.components.LanguageSelector
@@ -87,8 +88,15 @@ fun TransmitterScreen(
     val level by transmitter.level.collectAsState()
     val modelStatus by transmitter.modelStatus.collectAsState()
     val sendAsCritical by transmitter.sendAsCritical.collectAsState()
+    val sttReadiness by transmitter.sttReadiness.collectAsState()
+    // Phase 14.2: while the speech model loads in the background, say so rather than STANDBY.
+    val modelLoading = sttReadiness == ModelReadiness.LOADING
 
-    val status = statusMeta(transcriptionState.status)
+    val status = if (modelLoading && transcriptionState.status == TransmitterStatus.IDLE) {
+        statusMeta(TransmitterStatus.INITIALIZING).copy(label = "LOADING SPEECH MODEL")
+    } else {
+        statusMeta(transcriptionState.status)
+    }
     val busy = transcriptionState.status == TransmitterStatus.TRANSCRIBING
     val activeModel = transmitter.activeModel
 
@@ -214,7 +222,11 @@ fun TransmitterScreen(
                             }
                         }
                         else -> Text(
-                            "Hold the mic and speak. Pause briefly or release to send.",
+                            if (modelLoading) {
+                                "Speech model loading… You can hold the mic now: what you say is kept and sent once it is ready."
+                            } else {
+                                "Hold the mic and speak. Pause briefly or release to send."
+                            },
                             color = AppColor.TextFaint,
                             fontSize = 13.sp,
                             lineHeight = 19.sp,
