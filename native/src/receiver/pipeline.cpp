@@ -121,6 +121,7 @@ void begin_receiver_session(ReceiverSession& session, const SessionKeys& keys, D
     session.replay           = ReplayWindow{};
     init_context(session.context);
     session.context_suspect = false;
+    session.refresh_counter = 0u;
 }
 
 ReceiveResult receive_native_payload(const ReceiverTables& t, ReceiverSession& s, const u8* payload, u32 length) {
@@ -176,6 +177,7 @@ ReceiveResult receive_native_payload(const ReceiverTables& t, ReceiverSession& s
 
     // ⑥ replay.
     enter(r, ReceiveStage::Replay);
+    const SeqCounter newest = s.replay.largest_accepted();
     if (s.replay.check(counter) != ReplayVerdict::Fresh || !s.replay.accept(counter)) {
         r.outcome = ReceiveOutcome::Replayed;
         return r;
@@ -183,6 +185,15 @@ ReceiveResult receive_native_payload(const ReceiverTables& t, ReceiverSession& s
     if (r.seq_gap) {
         r.request_sync    = true;
         s.context_suspect = true;
+    }
+    // Periodic refresh (context §16.1, context.h): only an authenticated, fresh,
+    // newest refresh point resets; a message from before the last reset commits nothing.
+    const bool previous_epoch = counter < s.refresh_counter;
+    if (is_context_refresh(counter) && counter > newest) {
+        init_context(s.context);
+        s.refresh_counter = counter;
+        s.context_suspect = false;
+        r.context_reset   = true;
     }
 
     // ⑦ context hash, against the PRE-message context, before anything is decoded.
@@ -235,10 +246,10 @@ ReceiveResult receive_native_payload(const ReceiverTables& t, ReceiverSession& s
         }
         // ⑪ commit — only with a matching (or absent) hash (§8.1, R8).
         enter(r, ReceiveStage::Commit);
-        if (r.context_matched) {
+        if (r.context_matched && !previous_epoch) {
             r.context_committed = commit(s.context, frame_commit_payload(decoded.frame, r.metadata.seq)) == CommitResult::Ok;
             if (r.context_committed) r.context_update = ReceiverContextUpdate::FromFrame;
-        } else {
+        } else if (!r.context_matched) {
             r.request_sync    = true;
             s.context_suspect = true;
         }
@@ -268,7 +279,7 @@ ReceiveResult receive_native_payload(const ReceiverTables& t, ReceiverSession& s
         r.output.text = decoded.text;
         // ⑪ commit — the same extractor over the same text, same language only.
         enter(r, ReceiveStage::Commit);
-        if (r.metadata.language == own) {
+        if (r.metadata.language == own && !previous_epoch) {
             const CommitPayload update =
                 tier2_text_commit(*t.pack, *t.common, reinterpret_cast<const u8*>(r.output.text.data()),
                                   r.output.text.size(), r.metadata.seq);

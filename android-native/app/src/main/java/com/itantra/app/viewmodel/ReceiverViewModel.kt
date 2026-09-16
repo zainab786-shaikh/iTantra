@@ -67,6 +67,9 @@ class ReceiverViewModel(
         _language.value = code
     }
 
+    /** Test hook only (Phase 12 pair conformance): every native receive result, emitted or not, as it arrives. */
+    @Volatile internal var onNativeResult: ((NativeReceiveResult) -> Unit)? = null
+
     private val unsubscribeConnection = transport.onConnectionChange { _connected.value = it }
     private val unsubscribeTts = ttsManager.subscribe { state -> onTtsState(state) }
     private val unsubscribePackets = transport.onPacketReceived { packet -> handlePacket(packet) }
@@ -137,6 +140,8 @@ class ReceiverViewModel(
             "native receive ${packet.id}: ${result.outcome}, status ${result.status}, tier ${result.mode}, " +
                 "priority ${result.priority}, counter ${result.counter}, committed ${result.contextCommitted}",
         )
+
+        onNativeResult?.invoke(result)
 
         // `receiver §7`, §9: an authentication failure leaves nothing readable
         // and a replay is discarded silently. Neither is output.

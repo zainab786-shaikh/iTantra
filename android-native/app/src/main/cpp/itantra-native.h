@@ -41,6 +41,9 @@ Java_com_itantra_app_native_NativeEngine_nativeBeginSession(JNIEnv* env, jobject
 JNIEXPORT jintArray JNICALL
 Java_com_itantra_app_native_NativeEngine_nativeCompatibility(JNIEnv* env, jobject thiz, jlong handle);
 
+JNIEXPORT jintArray JNICALL
+Java_com_itantra_app_native_NativeEngine_nativeContextHashes(JNIEnv* env, jobject thiz, jlong handle);
+
 JNIEXPORT jobjectArray JNICALL
 Java_com_itantra_app_native_NativeEngine_nativeSendUtterance(JNIEnv* env, jobject thiz, jlong handle,
                                                              jbyteArray utf8, jstring sender_language,

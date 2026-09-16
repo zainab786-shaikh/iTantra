@@ -115,6 +115,7 @@ struct ReceiverSession {
     ReplayWindow replay;
     Context      context{};
     bool         context_suspect = false;   // a gap or a mismatch since the last matching hash
+    SeqCounter   refresh_counter = 0u;      // counter of the last refresh applied (context §16.1); 0 = none
 };
 
 void begin_receiver_session(ReceiverSession& session, const SessionKeys& keys, Direction sender_direction) noexcept;
@@ -135,6 +136,7 @@ struct ReceiveResult {
     bool       seq_gap        = false;
     u8         gap            = 0u;
     bool       context_matched   = false;     // ⑦: no hash sent, or it matched
+    bool           context_reset     = false;   // this packet was a refresh point: context reset first
     bool           context_committed = false;
     ReceiverContextUpdate context_update    = ReceiverContextUpdate::None;
 

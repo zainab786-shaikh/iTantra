@@ -278,6 +278,19 @@ Java_com_itantra_app_native_NativeEngine_nativeCompatibility(JNIEnv* env, jobjec
     return out;
 }
 
+// Phase 12 observability (C-10, C-16, C-35): the context hash each half holds now,
+// { sender context, receiver context } (context §5.2). Read-only.
+JNIEXPORT jintArray JNICALL
+Java_com_itantra_app_native_NativeEngine_nativeContextHashes(JNIEnv* env, jobject, jlong handle) {
+    Engine* engine = engine_of(env, handle);
+    if (engine == nullptr) return nullptr;
+    const jint values[2] = {static_cast<jint>(engine->sender_context().hash),
+                            static_cast<jint>(engine->receiver_context().hash)};
+    jintArray out = env->NewIntArray(2);
+    if (out != nullptr) env->SetIntArrayRegion(out, 0, 2, values);
+    return out;
+}
+
 JNIEXPORT jobjectArray JNICALL
 Java_com_itantra_app_native_NativeEngine_nativeSendUtterance(JNIEnv* env, jobject, jlong handle,
                                                              jbyteArray utf8, jstring sender_language,

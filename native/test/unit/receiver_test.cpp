@@ -636,6 +636,73 @@ ITEST(language_id_is_the_receivers_for_tier1_and_the_senders_for_tier2) {
     ITEST_TRUE(messages >= 100u && skipped >= 10u);
 }
 
+// Phase 12 periodic refresh (context §16.1, context.h is_context_refresh): after a
+// loss both phones hold different contexts; the next refresh point resets both to
+// the initial state, so they are identical again and inheritance resumes. A
+// replayed or late refresh resets nothing; a message from before the last reset
+// commits nothing.
+ITEST(periodic_refresh_reconverges_after_loss_and_ignores_stale_refreshes) {
+    Phone    tx(fx(), "en", keys());
+    Receiver rx(fx(), "en", keys());
+    const auto deliver = [&](const char* text) {
+        const ReceiveResult r = rx.receive(tx.tier1(text));
+        ITEST_TRUE(r.outcome == ReceiveOutcome::Delivered && !r.context_reset);
+        ITEST_TRUE(rxfx::same_context(rx.session.context, tx.ctx));
+    };
+
+    tx.tier1("Send an ambulance to the hospital");   // counter 1, lost: LOCATION written on the sender only
+    u32 mismatches = 0u;
+    while (tx.counter + 1u < kContextRefreshInterval) {
+        const ReceiveResult r = rx.receive(tx.tier1("Send medicine to the hospital"));   // LOCATION inherited
+        ITEST_TRUE(r.outcome == ReceiveOutcome::Delivered || r.outcome == ReceiveOutcome::Tier1Unresolved);
+        ITEST_TRUE(!r.context_reset);
+        if (r.outcome == ReceiveOutcome::Tier1Unresolved) {
+            ITEST_TRUE(r.output.text.empty() && !r.context_committed);
+            ++mismatches;
+        }
+    }
+    ITEST_TRUE(mismatches > 0u);
+    ITEST_TRUE(context_hash(rx.session.context) != context_hash(tx.ctx));
+
+    // Counter 16: the refresh. Fully explicit, no hash, both phones reset first.
+    const std::vector<u8> refresh = tx.tier1("Send medicine to the hospital");
+    ITEST_EQ(tx.counter, kContextRefreshInterval);
+    const ReceiveResult r16 = rx.receive(refresh);
+    ITEST_TRUE(r16.outcome == ReceiveOutcome::Delivered && r16.context_reset && r16.context_committed);
+    ITEST_TRUE(!r16.metadata.hash_present);
+    ITEST_TRUE(rxfx::same_context(rx.session.context, tx.ctx));
+    // Inheritance works normally again (C-16).
+    const ReceiveResult r17 = rx.receive(tx.tier1("Send medicine to the hospital"));
+    ITEST_TRUE(r17.outcome == ReceiveOutcome::Delivered && r17.metadata.hash_present && r17.context_matched);
+    ITEST_TRUE(rxfx::same_context(rx.session.context, tx.ctx));
+
+    // A replayed refresh is discarded before it can reset anything.
+    const ReceiveResult replay = rx.receive(refresh);
+    ITEST_TRUE(replay.outcome == ReceiveOutcome::Replayed && !replay.context_reset);
+    ITEST_TRUE(rxfx::same_context(rx.session.context, tx.ctx));
+
+    // Refresh 32 arrives before 31: 32 resets; 31 (previous epoch) decodes but commits nothing.
+    while (tx.counter + 2u < 2u * kContextRefreshInterval) deliver("Police move");
+    const std::vector<u8> p31 = tx.tier1("Army stop");
+    const std::vector<u8> p32 = tx.tier1("Fire at the north gate");
+    ITEST_TRUE(rx.receive(p32).context_reset);
+    const ReceiveResult r31 = rx.receive(p31);
+    ITEST_TRUE(r31.outcome == ReceiveOutcome::Delivered && !r31.context_reset && !r31.context_committed);
+    ITEST_TRUE(rxfx::same_context(rx.session.context, tx.ctx));
+    deliver("Send an ambulance to the hospital");
+
+    // Refresh 48 arrives after 49: a late refresh resets nothing; refresh 64 restores identity.
+    while (tx.counter + 1u < 3u * kContextRefreshInterval) deliver("Police move");
+    const std::vector<u8> p48 = tx.tier1("Army stop");
+    const std::vector<u8> p49 = tx.tier1("Police move");
+    rx.receive(p49);
+    ITEST_TRUE(!rx.receive(p48).context_reset);
+    while (tx.counter + 1u < 4u * kContextRefreshInterval) rx.receive(tx.tier1("Police move"));
+    ITEST_TRUE(rx.receive(tx.tier1("Police move")).context_reset);
+    ITEST_TRUE(rxfx::same_context(rx.session.context, tx.ctx));
+    deliver("Send an ambulance to the hospital");
+}
+
 ITEST(priority_survives_and_outputs_follow_arrival_order) {
     Phone    tx(fx(), "en", keys());
     Receiver rx(fx(), "en", keys());

@@ -136,13 +136,14 @@ struct Phone {
     u8 next(SeqCounter skip) {
         counter += 1u + skip;
         last = counter;
+        if (is_context_refresh(counter)) init_context(ctx);   // periodic refresh, as the engine sends it
         return seq_to_wire(counter);
     }
 
     // Tier 1 exactly as tier1_encode() makes it; committed. Empty if refused.
     std::vector<u8> tier1(const std::string& text, bool critical = false, SeqCounter skip = 0u) {
-        const selfx::Sample s = sample(text, critical);
         const u8 seq = next(skip);
+        const selfx::Sample s = sample(text, critical);
         const Tier1Encoding e = tier1_for(f, s, seq);
         if (e.outcome != Tier1Outcome::Ok) return {};
         commit(ctx, e.commit);
@@ -152,8 +153,8 @@ struct Phone {
     // Tier 2; committed from the text when the listener shares the language.
     std::vector<u8> tier2(const std::string& text, const std::string& listener, bool boost, bool critical = false,
                           bool commit_after = true, SeqCounter skip = 0u) {
-        const selfx::Sample s = sample(text, critical);
         const u8 seq = next(skip);
+        const selfx::Sample s = sample(text, critical);
         const std::vector<u8> plain = tier2_plain(f, s, seq, boost, critical ? Priority::Critical : Priority::Normal);
         if (plain.empty()) return {};
         if (commit_after && listener == lang) {
@@ -170,12 +171,12 @@ struct Phone {
     // (policy.allow_inheritance = false; Tier 2 is then never boosted).
     std::vector<u8> selected(const std::string& text, std::size_t k, const std::string& listener, TierSelection& out,
                              bool context_free = false) {
+        const u8 seq = next(0u);
         selfx::Sample s = selfx::single(f, "tx", lang, text);
         s.k   = k;
         s.ctx = ctx;
-        const u8 seq = next(0u);
         SelectRequest request = selfx::request_for(s, true, listener, seq);
-        request.policy.allow_inheritance = !context_free;
+        request.policy.allow_inheritance = !context_free && !is_context_refresh(counter);
         out = select_tier(f.tables(lang), request);
         if (out.payload.empty()) return {};
         if (out.context_update == ContextUpdate::FromFrame) {

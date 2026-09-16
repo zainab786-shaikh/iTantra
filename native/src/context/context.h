@@ -120,6 +120,36 @@ enum class CommitResult : u8 {
     InvalidLastRef,    // Write to LAST_REF outside 1 … kLastRefMaxStored
 };
 
+// ---------------------------------------------------------------------------
+// Periodic refresh — §16.1 PERIODIC_EXPLICIT (the mode §16.2 selects for UDP),
+// with §13.4's reset carried by the counter rather than a packet field.
+// ---------------------------------------------------------------------------
+//
+// DECIDED in Phase 12. The hash covers every slot's (current, ver) (§5.2), and
+// ver counts writes, so a fully explicit message alone cannot restore identity
+// after a divergence: the unmentioned slots and every ver still differ. A
+// refresh therefore resets. The message whose wide counter is a refresh point is
+// encoded and committed, on BOTH phones, against the §5.3 initial state:
+//
+//   sender    context := initial; encode fully explicit (no INHERIT / REF, no
+//             hash, Tier 2 unboosted); commit; send.
+//   receiver  after authentication and the replay check, when the counter is a
+//             refresh point AND newer than every counter accepted before it:
+//             context := initial; then ⑦ … ⑪ as usual.
+//
+// The wide counter is authenticated (packet §6.5, receiver counter recovery), so
+// nothing on the wire changes and a forged or replayed packet cannot trigger a
+// reset. A late refresh (older than the newest accepted counter) resets nothing.
+// A message older than the last applied reset belongs to the previous epoch and
+// commits nothing (the sender's reset already discarded its update).
+// Loss or reordering therefore diverges the contexts for at most the rest of
+// the current interval.
+constexpr u64 kContextRefreshInterval = 16u;
+
+constexpr bool is_context_refresh(u64 counter) noexcept {
+    return counter != 0u && counter % kContextRefreshInterval == 0u;
+}
+
 // §5.3 initial state: all slots zero, context_id 0, seq 0, hash of the all-zero
 // slot table. Every field is written, whatever the memory held.
 void init_context(Context& ctx) noexcept;

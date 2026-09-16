@@ -161,6 +161,9 @@ class AppViewModel @JvmOverloads constructor(
         udp.announceNow()
     }
 
+    /** Test only (C-10, C-16, C-35): `{ sender context hash, receiver context hash }`; null without an engine. */
+    internal fun contextHashes(): IntArray? = nativeEngine?.contextHashes()
+
     override fun onCleared() {
         transmitter.dispose()
         receiver.dispose()

@@ -179,7 +179,22 @@ class UdpTransport(
     // Transport
     // -----------------------------------------------------------------------
 
+    /**
+     * Test hook only (implementation plan Phase 12, the lossy proxy): given each
+     * outbound message, the packets actually put on the air, in order — none
+     * (lost, or held back to be released later: reordering), one, or several
+     * (duplicates). Each goes out as its own frame. Null in the app.
+     */
+    @Volatile internal var outboundFaults: ((ITantraPacket) -> List<ITantraPacket>)? = null
+
     override suspend fun sendPacket(packet: ITantraPacket): Boolean {
+        val faults = outboundFaults ?: return sendNow(packet)
+        var sent = true
+        for (onAir in faults(packet)) sent = sendNow(onAir) && sent
+        return sent
+    }
+
+    private suspend fun sendNow(packet: ITantraPacket): Boolean {
         val target = currentTarget()
         if (target == null) {
             Log.w(TAG, "no peer and no broadcast address; dropping ${packet.id}")

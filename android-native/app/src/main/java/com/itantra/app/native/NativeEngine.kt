@@ -136,6 +136,10 @@ class NativeEngine internal constructor(private var handle: Long) : AutoCloseabl
     @Synchronized
     fun compatibility(): IntArray = nativeCompatibility(open())
 
+    /** Test observability (C-10, C-16, C-35): `{ sender context hash, receiver context hash }` now. */
+    @Synchronized
+    fun contextHashes(): IntArray = nativeContextHashes(open())
+
     @Synchronized
     fun beginSession(psk: ByteArray, initiatorNonce: ByteArray, responderNonce: ByteArray, initiator: Boolean) {
         nativeBeginSession(open(), psk, initiatorNonce, responderNonce, initiator)
@@ -190,6 +194,7 @@ class NativeEngine internal constructor(private var handle: Long) : AutoCloseabl
         responderNonce: ByteArray,
     )
     private external fun nativeCompatibility(handle: Long): IntArray
+    private external fun nativeContextHashes(handle: Long): IntArray
     private external fun nativeBeginSession(
         handle: Long,
         psk: ByteArray,

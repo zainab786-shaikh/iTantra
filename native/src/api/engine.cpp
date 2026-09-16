@@ -213,6 +213,12 @@ UtteranceSend Engine::send_utterance(const SendRequest& request) {
             break;
         }
         const SeqCounter counter = send_counter_ + 1u;
+        // Periodic refresh (context §16.1, context.h): a refresh point is encoded and
+        // committed against the initial state, fully explicit. `next` becomes the
+        // context only once the message is released.
+        const bool refresh = is_context_refresh(counter);
+        Context    next    = send_context_;
+        if (refresh) init_context(next);
 
         SelectRequest r;
         r.clause            = &extraction.clauses[k];
@@ -222,7 +228,8 @@ UtteranceSend Engine::send_utterance(const SendRequest& request) {
         r.stt_confidence    = request.stt_confidence;
         r.manual_critical   = request.manual_critical;
         r.seq               = seq_to_wire(counter);
-        r.context           = &send_context_;
+        r.context           = &next;
+        r.policy.allow_inheritance = !refresh;
         r.adjacency         = nullptr;
         r.sender_language   = sender_id;
         r.listener_language = listener_id;
@@ -275,7 +282,7 @@ UtteranceSend Engine::send_utterance(const SendRequest& request) {
                                         r.seq);
             do_commit = true;
         }
-        if (do_commit && commit(send_context_, payload) != CommitResult::Ok) {
+        if (do_commit && commit(next, payload) != CommitResult::Ok) {
             secure_wipe(sealed.data(), static_cast<u32>(sealed.size()));
             std::memset(c.nonce, 0, sizeof c.nonce);
             c.commit_refused = true;
@@ -283,6 +290,7 @@ UtteranceSend Engine::send_utterance(const SendRequest& request) {
             continue;
         }
 
+        send_context_ = next;
         send_counter_ = counter;
         c.counter     = counter;
         c.sent        = true;
