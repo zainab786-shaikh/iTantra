@@ -1,22 +1,21 @@
 # iTantra — Tactical Offline Speech-to-Packet Communication Engine
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.1.20-blue.svg)](https://kotlinlang.org/)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](https://isocpp.org/)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material3-black.svg)](https://developer.android.com/jetpack/compose)
 [![Android](https://img.shields.io/badge/Android-minSdk%2024-3DDC84.svg)](https://developer.android.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Offline STT](https://img.shields.io/badge/Offline%20STT-AI4Bharat%20IndicConformer-brightgreen.svg)]()
 [![Offline TTS](https://img.shields.io/badge/Offline%20TTS-Sherpa--ONNX%20VITS-orange.svg)]()
 
-**iTantra** is a high-performance, edge-first tactical voice communication engine built natively for Android in **Kotlin** with **Jetpack Compose**, calling directly into on-device **sherpa-onnx** ONNX Runtime decoders (no TurboModule bridge, no JavaScript runtime).
+**iTantra** is a high-performance, edge-first tactical voice communication engine built natively for Android in **Kotlin** and **C++17** with **Jetpack Compose**, calling directly into on-device **sherpa-onnx** ONNX Runtime decoders and a custom native C++ cryptographic/compression core via JNI.
 
-Designed for high-stress, low-connectivity, disaster-response, and tactical military/defense environments, iTantra records audio, performs on-device Voice Activity Detection (VAD), transcribes speech into text **completely offline**, categorizes priority based on multi-lingual keyword triggers, and wraps the utterance into a standardized, transport-agnostic data packet for broadcast over radio (LoRa, BLE, or tactical mesh networks).
+Designed for high-stress, low-connectivity, disaster-response, and tactical military/defense environments, iTantra records audio, performs on-device Voice Activity Detection (VAD), transcribes speech into text **completely offline**, categorizes priority based on multi-lingual keyword triggers, compresses and encrypts payloads in C++, and wraps the utterance into a standardized, transport-agnostic data packet for broadcast over wireless UDP networks or radio hardware (LoRa, BLE Mesh).
 
 The app runs a complete bidirectional tactical communication system:
 
-* **Transmit (STT)** — Speech in ➔ On-Device VAD ➔ Offline STT ➔ Priority Banding ➔ `ITantraPacket` out.
-* **Receive (TTS)** — Packets in ➔ Priority Filtering ➔ On-Device TTS Speech Synthesis ➔ Audio Spoken Aloud.
-
-> **Note:** this project was originally prototyped in React Native (Expo). It has since been fully migrated to a native Kotlin/Jetpack Compose application — see [`MIGRATION_STATUS.md`](MIGRATION_STATUS.md) and [`MIGRATION_AUDIT.md`](MIGRATION_AUDIT.md) for the complete phase-by-phase migration record. React Native is no longer part of this codebase.
+* **Transmit (STT)** — Speech in ➔ On-Device VAD ➔ Offline STT ➔ C++ Native Codec & Encryption ➔ Priority Banding ➔ `ITantraPacket` out over UDP/Radio.
+* **Receive (TTS)** — Packets in ➔ C++ Native Decryption & Codec ➔ Priority Filtering ➔ On-Device TTS Speech Synthesis ➔ Audio Spoken Aloud.
 
 ---
 
@@ -31,6 +30,10 @@ The app runs a complete bidirectional tactical communication system:
   * Piper high-fidelity voices for English, Hindi, and Malayalam.
   * Meta MMS (Massively Multilingual Speech) voices for Marathi, Gujarati, Kannada, Tamil, Telugu, Odia, and Bengali.
   * Automated background audio queue, instant speech playback of received transmissions, and dedicated replay controls.
+* **Native C++ Engine & Monocypher Encryption (`libitantra-native.so`)**:
+  * Core pipeline powered by a zero-allocation C++17 engine linked via JNI (`NativeEngine` / `NativeBridge`).
+  * End-to-end AEAD encryption, key derivation, and replay protection backed by Monocypher.
+  * Tier-1 and Tier-2 phrase/subword compression codecs delivering up to 10x payload size reduction over the air.
 * **Sub-Second Low Latency**:
   * Single-pass CTC decoders transcribing speech in **~500 ms** to sub-second timings on mobile CPUs.
   * Drastically faster than autoregressive decoders (like Whisper), which take 6+ seconds on the same hardware.
@@ -45,14 +48,15 @@ The app runs a complete bidirectional tactical communication system:
   8. **Telugu (`te-IN`)** — తెలుగు
   9. **Odia (`or-IN`)** — ଓଡ଼ିଆ
   10. **Bengali (`bn-IN`)** — বাংলা
+* **Wireless P2P UDP Transport**:
+  * Infrastructure-less peer-to-peer communication over local Wi-Fi or Hotspot (`UdpTransport` on port `47821`).
+  * Auto-learning socket address discovery and keepalives.
+  * Simulated rate-limiter (250 bps LoRa SF12 simulation) for tactical airtime analysis.
 * **Intelligent Sentence Segmentation & VAD**:
   * Adaptive noise-floor energy + Zero Crossing Rate (ZCR) detector.
-  * Hysteresis smoothing, configurable pause flush timing (600 ms, 750 ms, 1000 ms), and pre-speech audio buffering (ensuring leading syllables are never clipped).
-* **Deterministic Priority Banding**:
-  * Real-time automated priority tagging: `CRITICAL`, `HIGH`, `MEDIUM`, or `NORMAL`.
-  * Transparent, rule-based multilingual keyword triggers across all 10 supported languages (detecting emergency, fire, attack, injury, or rescue terms in native scripts).
+  * Hysteresis smoothing, configurable pause flush timing (600 ms, 750 ms, 1000 ms), and pre-speech audio buffering.
 * **Field-Ready Dark Cockpit UI**:
-  * Sleek, high-contrast tactical dark aesthetic with audio wave visualizer, live audio level monitor, response-pause control, and connection status indicators.
+  * Sleek, high-contrast tactical dark aesthetic with audio wave visualizer, live audio level monitor, response-pause control, link setup, and connection status indicators.
 
 ---
 
@@ -72,20 +76,6 @@ Every language is mapped to a dedicated speech-to-text decoder and text-to-speec
 | **8** | **Telugu** | `te-IN` | AI4Bharat IndicConformer (int8) | Meta MMS VITS (`tel`) |
 | **9** | **Odia** | `or-IN` | AI4Bharat IndicConformer (int8) | Meta MMS VITS (`ory`) |
 | **10** | **Bengali** | `bn-IN` | AI4Bharat IndicConformer (int8) | Meta MMS VITS (`ben`) |
-
----
-
-## 🎯 Why AI4Bharat IndicConformer Solved the Accuracy Problem
-
-Earlier iterations evaluated generic multilingual models (Whisper and Dolphin CTC), which exhibited fundamental architectural drawbacks:
-
-1. **Whisper Byte-Level BPE Artifacts**: Whisper uses byte-level BPE tokenization. The underlying C++ runtime converts tokens to strings one at a time, causing multi-byte UTF-8 sequences (essential for Indic scripts) to collapse into empty tokens. Hindi words decoded as broken fragments (`[" ह","म","े","ं"," ","","","","र"]`).
-2. **Dolphin Multilingual Script Confusion**: Dolphin CTC required the model to predict the language itself. Because Brahmic scripts share phonetic roots, it frequently transcribed the correct phonetics in the wrong script (e.g., transcribing Bengali words into Devanagari script).
-
-### The AI4Bharat Solution:
-* **Dedicated Native Language Vocabularies**: AI4Bharat IndicConformer models are trained specifically on authentic regional Indian speech corpora, with language-specific token sets.
-* **Zero Script Bleeding**: When Marathi or Bengali is selected, the decoder is acoustically and lexically constrained to that language's script.
-* **Quantized INT8 Efficiency**: At ~188 MB per language, these models run with 2 CPU threads on mobile hardware, delivering sub-second transcription with complete offline independence.
 
 ---
 
@@ -111,19 +101,22 @@ Earlier iterations evaluated generic multilingual models (Whisper and Dolphin CT
         │                 • Indic: AI4Bharat IndicConformer (~188 MB each)
         │
         ▼
-[ Post-Processing ] ──► Hallucination Rejection + Indic Script Repair
+[ NativeEngine (C++) ] ──► Phrase / Context Normalization + Compression Codec + AEAD Encryption
         │
         ▼
-[ PacketFactory ] ──► Multi-lingual Keyword Priority Banding (CRITICAL / HIGH / MEDIUM / NORMAL)
+[ PacketFactory ] ──► Multilingual Keyword Priority Banding (CRITICAL / HIGH / MEDIUM / NORMAL)
         │             • Packages into UUID v4 ITantraPacket
         ▼
-[ Transport Layer ] ──► Dispatched to Transport (MockTransport today; LoRa / BLE Mesh pluggable)
+[ Transport Layer ] ──► UdpTransport (Port 47821 over Wi-Fi/Hotspot; LoRa / BLE Mesh pluggable)
 ```
 
 ### 2. Receive Path (Packet ➔ Audio)
 
 ```
-[ Transport Layer ] ──► onPacketReceived
+[ UdpTransport / Radio ] ──► onPacketReceived
+        │
+        ▼
+[ NativeEngine (C++) ] ──► AEAD Decryption + Replay Verification + Decompression Codec
         │
         ▼
 [ ReceiverViewModel ] ──► Deduplication + Message State Management
@@ -137,8 +130,6 @@ Earlier iterations evaluated generic multilingual models (Whisper and Dolphin CT
                                 • MMS voices:   Marathi, Gujarati, Kannada, Tamil,
                                                 Telugu, Odia, Bengali
 ```
-
-Both modes are active and share a single transport instance: any message transmitted in Transmit mode can be immediately received and spoken aloud in Receive mode.
 
 ---
 
@@ -154,9 +145,10 @@ data class ITantraPacket(
     val senderId: String,     // Unique hardware/device fingerprint
     val timestamp: Long,      // Epoch millisecond timestamp
     val language: String,     // BCP-47 language tag (e.g., "en-IN", "hi-IN", "mr-IN")
-    val text: String,         // Final decoded transcript
+    val text: String,         // Decoded transcript
     val priority: PacketPriority,
     val isCompressed: Boolean,
+    val payload: ByteArray,   // Encrypted/compressed binary payload
 )
 ```
 
@@ -167,32 +159,34 @@ data class ITantraPacket(
 ```
 iTantra/
 ├── README.md                        # Master project documentation
-├── iTantra Design.md                # Architecture decisions and design rationale
-├── MIGRATION_AUDIT.md                # Code-level RN -> Kotlin migration audit
-├── MIGRATION_STATUS.md               # Phase-by-phase migration execution log
+├── native/                          # Core C++17 engine library
+│   ├── CMakeLists.txt               # Host & native C++ build configuration
+│   ├── src/                         # AEAD crypto, phrase codecs, context managers
+│   └── test/                        # Conformance & golden vector test suites
 └── android-native/                  # The native Kotlin/Compose Android application
     ├── settings.gradle.kts / build.gradle.kts / gradle.properties
     └── app/
-        ├── build.gradle.kts          # Sherpa-onnx/ONNX Runtime native AAR integration
+        ├── build.gradle.kts          # Sherpa-onnx native integration + NDK CMake
         └── src/main/
+            ├── cpp/                 # JNI bridge (itantra-native.cpp)
             ├── AndroidManifest.xml
             └── java/com/itantra/app/
-                ├── MainActivity.kt              # Root Activity, Transmit/Receive switcher
+                ├── MainActivity.kt              # Root Activity, Transmit/Receive/Link switcher
+                ├── native/                       # NativeEngine & NativeBridge JNI wrappers
                 ├── config/                       # Languages, STT/TTS model registries, VAD config
                 ├── audio/                        # AudioRecord capture, PCM framing
                 ├── vad/                          # EnergyVad, SentenceSegmenter
-                ├── stt/                          # SttEngine, SherpaSttBackend, script repair, filters
+                ├── stt/                          # SttEngine, SherpaSttBackend, script repair
                 ├── tts/                          # TtsEngine, TtsManager, TtsQueue, TtsModelManager
                 ├── packet/                       # ITantraPacket, PriorityClassifier, PacketFactory
                 ├── device/                       # Stable device fingerprinting
-                ├── transport/                    # Transport interface + MockTransport loopback
-                ├── receiver/                      # Received-message contracts
-                ├── core/                          # Shared transcription/state types
+                ├── transport/                    # UdpTransport, ThrottledTransport, MockTransport
+                ├── receiver/                      # ReceivedMessage contracts
                 ├── viewmodel/                     # AppViewModel, TransmitterViewModel, ReceiverViewModel
                 └── ui/
-                    ├── screens/                   # TransmitterScreen, ReceiverScreen
+                    ├── screens/                   # TransmitterScreen, ReceiverScreen, LinkScreen
                     ├── components/                # PttButton, WaveVisualizer, PacketLog, ModelCard,
-                    │                               # ReceivedMessageLog, CriticalAlertBanner, ...
+                    │                               # ReceivedMessageLog, TtsStatusCard, AirtimeRace, ...
                     └── theme/                      # Tactical dark palette and design tokens
 ```
 
@@ -202,89 +196,31 @@ iTantra/
 
 ### 1. Requirements
 * **Java Development Kit**: **JDK 17** (e.g., Eclipse Temurin 17 or OpenJDK 17).
-  > **Crucial:** Android Gradle Plugin requires JDK 17. Java 21 or Java 25 will cause build errors.
-* **Android SDK**: Build-tools, platform-tools (`adb`), and Android SDK Platform 35/36.
+* **Android SDK & NDK**: CMake 3.22.1+, NDK r26+, Android SDK Platform 35/36.
 * **macOS / Linux / Windows**
 
 ### 2. Environment Variables (example)
 ```bash
-export JAVA_HOME="$HOME/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home"
-export ANDROID_HOME="$HOME/Library/Android/sdk"
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk"
+export ANDROID_HOME="$HOME/Android/Sdk"
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/tools:$PATH"
 ```
 
 ---
 
-## 📥 Installation & Running
+## 📥 Building & Running
 
-### 1. Clone the Repository
+### 1. Build the Debug APK
 ```bash
-git clone https://github.com/zainab786-shaikh/iTantra.git
-cd iTantra/android-native
-```
-
-### 2. Build the Debug APK
-```bash
+cd android-native
 ./gradlew assembleDebug
 ```
 
-### 3. Install & Launch on a Connected Android Device
+### 2. Install & Launch on Connected Android Devices
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.itantra.app/.MainActivity
 ```
-
-No Node.js, npm, Metro bundler, or Expo tooling is required — this is a plain Gradle/Kotlin Android project.
-
----
-
-## 🧠 Model Storage & Sideloading (Air-Gapped Deployment)
-
-All speech models are saved directly inside the app's internal sandbox storage:
-
-* **STT Models**: `/data/user/0/com.itantra.app/files/itantra-models/<model-id>/`
-* **TTS Models**: `/data/user/0/com.itantra.app/files/itantra-tts-models/<model-id>/`
-
-### Sideloading via ADB (Air-Gapped / Offline Deployment)
-To manually push an AI4Bharat IndicConformer model onto the device without internet access:
-
-```bash
-PKG=com.itantra.app
-DEST=files/itantra-models/indicconformer-hi          # Directory for Hindi model
-
-adb shell run-as $PKG mkdir -p $DEST
-adb push model.int8.onnx tokens.txt /data/local/tmp/
-for f in model.int8.onnx tokens.txt; do
-  adb shell "run-as $PKG cp /data/local/tmp/$f $DEST/$f"
-done
-adb shell rm -f /data/local/tmp/model.int8.onnx /data/local/tmp/tokens.txt
-```
-
----
-
-## ⚠️ Operational Notes
-
-* **Single Microphone Ownership**: Android grants exclusive recording access to one app at a time. If an in-progress phone call, voice recorder, or assistant is active, the app clearly warns the operator instead of failing silently.
-* **Single-Pass Decoding**: CTC models produce lowercase text without punctuation, providing maximum decoding speed (~500 ms) critical for tactical voice dispatch.
-* **Mock Transport Loopback**: `MockTransport` acts as an in-app loopback interface for testing, allowing transmitted packets to immediately trigger receive-side processing and TTS playback on the same hardware.
-
----
-
-## 🔌 Swapping the Transport Layer
-
-The transmission layer implements the `Transport` interface (`android-native/app/src/main/java/com/itantra/app/transport/Transport.kt`):
-
-```kotlin
-interface Transport {
-    val name: String
-    suspend fun sendPacket(packet: ITantraPacket): Boolean
-    fun isConnected(): Boolean
-    fun onConnectionChange(listener: (Boolean) -> Unit): () -> Unit
-    fun onPacketReceived(listener: (ITantraPacket) -> Unit): () -> Unit
-}
-```
-
-To integrate custom hardware (e.g. LoRa SX1262 / SX1276 over UART/USB, BLE mesh, or ESP-NOW), implement the interface and pass it into `AppViewModel` in place of `MockTransport`.
 
 ---
 
@@ -296,4 +232,5 @@ Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
 
 ### Acknowledgments
 * [AI4Bharat IndicConformer](https://github.com/AI4Bharat/IndicConformerASR) — State-of-the-art offline Indian language speech recognition models.
-* [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) — Embedded offline speech recognition and ONNX runtime, consumed here directly via its Kotlin API.
+* [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) — Embedded offline speech recognition and ONNX runtime.
+* [Monocypher](https://monocypher.org/) — Lightweight C crypto library used for AEAD encryption.
