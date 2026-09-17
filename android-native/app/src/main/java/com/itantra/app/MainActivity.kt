@@ -9,6 +9,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -89,6 +90,7 @@ private fun AppShell(appViewModel: AppViewModel) {
     val throttleBps by appViewModel.throttle.bitsPerSecond.collectAsState()
     val simNote = if (throttleOn) "SIM LINK · $throttleBps BPS" else null
     val pairingError by appViewModel.pairingError.collectAsState()
+    val sessionReady by appViewModel.sessionReadyState.collectAsState()
 
     val isDarkTheme by appViewModel.isDarkTheme.collectAsState()
     val onThemeToggle = { dark: Boolean -> appViewModel.setDarkTheme(dark) }
@@ -129,6 +131,7 @@ private fun AppShell(appViewModel: AppViewModel) {
                     throttle = appViewModel.throttle,
                     isDarkTheme = isDarkTheme,
                     onThemeToggle = onThemeToggle,
+                    sessionReady = sessionReady,
                 )
             }
         }
@@ -184,31 +187,24 @@ private fun NavTab(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val iconTint = if (active) AppColor.Primary else AppColor.TextFaint
-    val labelColor = if (active) AppColor.Primary else AppColor.TextFaint
-    val bgColor = if (active) AppColor.Primary.copy(alpha = 0.10f) else androidx.compose.ui.graphics.Color.Transparent
-
-    Box(
+    Column(
         modifier = modifier
-            .background(bgColor, RoundedCornerShape(AppRadius.sm))
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = iconTint,
-                modifier = Modifier.size(22.dp),
-            )
-            Text(
-                text = label,
-                color = labelColor,
-                fontSize = 11.sp,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                modifier = Modifier.padding(top = 3.dp),
-            )
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (active) AppColor.Primary else AppColor.TextFaint,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = label,
+            color = if (active) AppColor.Primary else AppColor.TextFaint,
+            fontSize = 11.sp,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+        )
     }
 }

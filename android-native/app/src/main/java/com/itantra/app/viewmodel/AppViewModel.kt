@@ -71,14 +71,19 @@ class AppViewModel @JvmOverloads constructor(
         private set
 
     /** True once a session key has been derived with the peer. */
-    @Volatile var sessionReady: Boolean = false
-        private set
+    private val _sessionReady = MutableStateFlow(!useRealLink)
+    val sessionReadyState: StateFlow<Boolean> = _sessionReady.asStateFlow()
+
+    var sessionReady: Boolean
+        get() = _sessionReady.value
+        private set(value) { _sessionReady.value = value }
 
     /** C-34: why pairing was refused (version / codebook mismatch); null when not refused. */
     private val _pairingError = MutableStateFlow<String?>(null)
     val pairingError: StateFlow<String?> = _pairingError.asStateFlow()
 
     init {
+        provisionPskIfMissing(application)
         if (udp != null && nativeEngine != null) startPairing(application, udp, nativeEngine)
     }
 
@@ -194,7 +199,7 @@ class AppViewModel @JvmOverloads constructor(
         nativeEngine?.close()
     }
 
-    private companion object {
+    internal companion object {
         /**
          * true: UDP between two phones, with a session from HELLO and the
          * provisioned PSK (Phase 12). false: the in-app loopback of Phase 11.
@@ -218,6 +223,32 @@ class AppViewModel @JvmOverloads constructor(
             } else {
                 "incompatible peer: " + local.indices.filter { local[it] != peer[it] }
                     .joinToString { "${COMPATIBILITY_NAMES[it]} ${peer[it]} (here ${local[it]})" }
+            }
+
+        fun provisionPskIfMissing(filesDir: File, openAssetStream: (String) -> java.io.InputStream?): Boolean {
+            val target = File(filesDir, PSK_FILE)
+            if (target.exists()) return true
+            return try {
+                val stream = openAssetStream(PSK_FILE) ?: return false
+                val hex = stream.use { input ->
+                    input.bufferedReader().readText().trim()
+                }
+                if (hex.length != 64 || !hex.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
+                    Log.e(TAG, "invalid $PSK_FILE in assets: must be exactly 64 hex characters")
+                    return false
+                }
+                target.writeText(hex)
+                Log.i(TAG, "provisioned $PSK_FILE from assets to ${target.absolutePath}")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "failed to provision $PSK_FILE from assets", e)
+                false
+            }
+        }
+
+        fun provisionPskIfMissing(context: Context): Boolean =
+            provisionPskIfMissing(context.filesDir) { name ->
+                try { context.assets.open(name) } catch (e: Exception) { null }
             }
 
         fun readPsk(application: Application): ByteArray? {

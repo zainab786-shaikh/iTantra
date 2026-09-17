@@ -75,8 +75,9 @@ import com.itantra.app.ui.theme.AppSizing as Sizing
 fun LinkScreen(
     link: LinkControl?,
     throttle: ThrottleControl,
-    isDarkTheme: Boolean,
-    onThemeToggle: (Boolean) -> Unit,
+    isDarkTheme: Boolean = true,
+    onThemeToggle: (Boolean) -> Unit = {},
+    sessionReady: Boolean = true,
 ) {
     val illustrationRes = if (isDarkTheme) com.itantra.app.R.drawable.mountain_illustration_dark else com.itantra.app.R.drawable.mountain_illustration_light
 
@@ -118,14 +119,14 @@ fun LinkScreen(
                             }
                         }
                         if (link != null) {
-                            val connected = link.lastHeardMs.collectAsState().value?.let { it < 45_000 } ?: false
+                            val connected = sessionReady && (link.lastHeardMs.collectAsState().value?.let { it < 45_000 } ?: false)
                             ConnectionBadge(connected = connected, label = "Link Active", compact = true)
                         }
                     }
 
                     // ── HERO ILLUSTRATION ────────────────────────────────────
                     Image(
-                        painter = androidx.compose.ui.res.painterResource(illustrationRes),
+                        painter = painterResource(illustrationRes),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
@@ -182,7 +183,6 @@ private fun ThisDeviceCard(link: LinkControl) {
     ) {
         // Card title
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // WiFi-style icon using concentric arcs approximation with boxes
             Box(
                 modifier = Modifier
                     .size(16.dp)
@@ -367,7 +367,7 @@ private fun InfoRow(label: String, value: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, color = AppColor.TextFaint, fontSize = 12.sp)
-        Text(value, color = AppColor.Text, fontSize = 12.sp, maxLines = 1)
+        Text(value, color = AppColor.Text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -377,12 +377,12 @@ private fun RateButton(label: String, selected: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .height(Sizing.touchTarget)
             .background(
-                if (selected) AppColor.Primary.copy(alpha = 0.15f) else AppColor.Surface,
+                if (selected) AppColor.Accent.copy(alpha = 0.12f) else AppColor.Surface,
                 RoundedCornerShape(AppRadius.sm),
             )
             .border(
                 1.dp,
-                if (selected) AppColor.Primary.copy(alpha = 0.5f) else AppColor.Hairline,
+                if (selected) AppColor.Accent.copy(alpha = 0.53f) else AppColor.Hairline,
                 RoundedCornerShape(AppRadius.sm),
             )
             .clickable(onClick = onClick)
@@ -391,9 +391,9 @@ private fun RateButton(label: String, selected: Boolean, onClick: () -> Unit) {
     ) {
         Text(
             label,
-            color = if (selected) AppColor.Primary else AppColor.TextMuted,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) AppColor.AccentStrong else AppColor.TextMuted,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
         )
     }
 }
