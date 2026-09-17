@@ -10,13 +10,23 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.MailOutline
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -26,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,26 +53,16 @@ import com.itantra.app.viewmodel.AppViewModel
 
 private enum class Mode { TRANSMIT, RECEIVE, LINK }
 
-/**
- * The actual iTantra product UI (Phase 10). Direct port of App.tsx's root
- * composition - one AppViewModel (owning the shared MockTransport + both
- * controllers, see AppViewModel.kt) and a floating Transmit/Receive
- * switcher, exactly mirroring App.tsx's own `mode` state and
- * `ModeSwitcher`. No Home/Devices/History/Settings/dashboards were added -
- * this is the same two-screen product, just natively implemented.
- *
- * The temporary diagnostic probe sections used during Phases 2-9 to
- * verify each ported component on-device have been removed (Phase 13
- * cleanup) now that the real product UI exercises the same code paths.
- */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         setContent {
-            ITantraTheme {
-                val appViewModel: AppViewModel = viewModel()
+            val appViewModel: AppViewModel = viewModel()
+            val isDarkTheme by appViewModel.isDarkTheme.collectAsState()
+
+            ITantraTheme(isDarkTheme = isDarkTheme) {
                 AppShell(appViewModel)
             }
         }
@@ -77,13 +78,6 @@ private fun AppShell(appViewModel: AppViewModel) {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         audioPermissionGranted = granted
-        // Mirrors useTransmitterController.ts's startPtt(), which awaits
-        // requestRecordingPermissionsAsync() and proceeds to open the mic in
-        // the same call if granted (or reports the exact same denial message
-        // if not). Android's permission request is an Activity-level
-        // operation the ViewModel cannot itself await mid-press, so the UI
-        // layer requests it and reports the outcome back here instead of
-        // silently requiring a second press to actually start capturing.
         if (granted) {
             appViewModel.transmitter.startPtt(context)
         } else {
@@ -91,65 +85,130 @@ private fun AppShell(appViewModel: AppViewModel) {
         }
     }
 
-    // Composed once, here, so both cockpit screens state the same thing.
     val throttleOn by appViewModel.throttle.enabled.collectAsState()
     val throttleBps by appViewModel.throttle.bitsPerSecond.collectAsState()
-    // "SIM LINK", not "SIMULATED LINK": the longer label clipped at this
-    // width, and dropping the BPS unit instead would have left a bare number
-    // that says nothing. The Link screen carries the full wording.
     val simNote = if (throttleOn) "SIM LINK · $throttleBps BPS" else null
-    // C-34: a refused pairing is shown in place of the link line on both screens.
     val pairingError by appViewModel.pairingError.collectAsState()
 
-    Box(modifier = Modifier.fillMaxSize().background(AppColor.Void)) {
-        when (mode) {
-            Mode.TRANSMIT -> TransmitterScreen(
-                transmitter = appViewModel.transmitter,
-                hasMicPermission = audioPermissionGranted,
-                onRequestMicPermission = { requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO) },
-                linkNote = if (pairingError != null) "PAIRING FAILED · VERSION MISMATCH" else "TRANSMIT · OFFLINE",
-                simNote = simNote,
-            )
-            Mode.RECEIVE -> ReceiverScreen(
-                receiver = appViewModel.receiver,
-                linkNote = if (pairingError != null) "PAIRING FAILED · VERSION MISMATCH" else "RECEIVE · OFFLINE",
-                simNote = simNote,
-            )
-            Mode.LINK -> LinkScreen(link = appViewModel.link, throttle = appViewModel.throttle)
-        }
+    val isDarkTheme by appViewModel.isDarkTheme.collectAsState()
+    val onThemeToggle = { dark: Boolean -> appViewModel.setDarkTheme(dark) }
 
-        Row(
+    Scaffold(
+        containerColor = AppColor.Void,
+        bottomBar = {
+            BottomNavBar(
+                mode = mode,
+                onModeChange = { mode = it },
+            )
+        }
+    ) { innerPadding ->
+        Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 12.dp)
-                .padding(WindowInsets.navigationBars.asPaddingValues())
-                .background(AppColor.Surface, RoundedCornerShape(AppRadius.pill))
-                .padding(4.dp),
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
-            SwitchButton(label = "Transmit", active = mode == Mode.TRANSMIT, onClick = { mode = Mode.TRANSMIT })
-            SwitchButton(label = "Receive", active = mode == Mode.RECEIVE, onClick = { mode = Mode.RECEIVE })
-            SwitchButton(label = "Link", active = mode == Mode.LINK, onClick = { mode = Mode.LINK })
+            when (mode) {
+                Mode.TRANSMIT -> TransmitterScreen(
+                    transmitter = appViewModel.transmitter,
+                    hasMicPermission = audioPermissionGranted,
+                    onRequestMicPermission = { requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                    linkNote = if (pairingError != null) "PAIRING FAILED · VERSION MISMATCH" else "TRANSMIT · OFFLINE",
+                    simNote = simNote,
+                    isDarkTheme = isDarkTheme,
+                    onThemeToggle = onThemeToggle,
+                )
+                Mode.RECEIVE -> ReceiverScreen(
+                    receiver = appViewModel.receiver,
+                    linkNote = if (pairingError != null) "PAIRING FAILED · VERSION MISMATCH" else "RECEIVE · OFFLINE",
+                    simNote = simNote,
+                    isDarkTheme = isDarkTheme,
+                    onThemeToggle = onThemeToggle,
+                )
+                Mode.LINK -> LinkScreen(
+                    link = appViewModel.link,
+                    throttle = appViewModel.throttle,
+                    isDarkTheme = isDarkTheme,
+                    onThemeToggle = onThemeToggle,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun SwitchButton(label: String, active: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .background(
-                if (active) AppColor.Primary.copy(alpha = 0.15f) else androidx.compose.ui.graphics.Color.Transparent,
-                RoundedCornerShape(AppRadius.pill),
+private fun BottomNavBar(mode: Mode, onModeChange: (Mode) -> Unit) {
+    Column {
+        // Top hairline divider
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(AppColor.Hairline)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(AppColor.Surface)
+                .padding(WindowInsets.navigationBars.asPaddingValues()),
+        ) {
+            NavTab(
+                icon = Icons.Rounded.Call,
+                label = "Transmit",
+                active = mode == Mode.TRANSMIT,
+                modifier = Modifier.weight(1f),
+                onClick = { onModeChange(Mode.TRANSMIT) },
             )
+            NavTab(
+                icon = Icons.Rounded.MailOutline,
+                label = "Receive",
+                active = mode == Mode.RECEIVE,
+                modifier = Modifier.weight(1f),
+                onClick = { onModeChange(Mode.RECEIVE) },
+            )
+            NavTab(
+                icon = Icons.Rounded.Share,
+                label = "Link",
+                active = mode == Mode.LINK,
+                modifier = Modifier.weight(1f),
+                onClick = { onModeChange(Mode.LINK) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun NavTab(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val iconTint = if (active) AppColor.Primary else AppColor.TextFaint
+    val labelColor = if (active) AppColor.Primary else AppColor.TextFaint
+    val bgColor = if (active) AppColor.Primary.copy(alpha = 0.10f) else androidx.compose.ui.graphics.Color.Transparent
+
+    Box(
+        modifier = modifier
+            .background(bgColor, RoundedCornerShape(AppRadius.sm))
             .clickable(onClick = onClick)
-            .padding(horizontal = 22.dp, vertical = 8.dp),
+            .padding(vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = label,
-            color = if (active) AppColor.Primary else AppColor.TextMuted,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = iconTint,
+                modifier = Modifier.size(22.dp),
+            )
+            Text(
+                text = label,
+                color = labelColor,
+                fontSize = 11.sp,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
     }
 }

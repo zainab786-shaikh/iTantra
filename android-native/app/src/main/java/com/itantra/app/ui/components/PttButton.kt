@@ -81,7 +81,7 @@ fun PttButton(
     val label = when {
         busy -> "PROCESSING"
         active -> "RELEASE TO SEND"
-        else -> "HOLD TO TALK"
+        else -> "HOLD TO SPEAK"
     }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -108,10 +108,8 @@ fun PttButton(
                         scaleX = s
                         scaleY = s
                     }
-                    .background(if (active) tint else AppColor.SurfaceRaised, CircleShape)
-                    .let {
-                        if (!active) it.border(1.5.dp, AppColor.Primary, CircleShape) else it
-                    }
+                    // Idle: solid Primary green. Active/speaking: Accent yellow.
+                    .background(if (active) tint else AppColor.Primary, CircleShape)
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onPress = {
@@ -127,7 +125,8 @@ fun PttButton(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                MicGlyph(color = if (active) AppColor.Void else AppColor.Primary)
+                // Always white mic glyph — visible on both green and yellow backgrounds.
+                MicGlyph(color = AppColor.Surface)
             }
         }
 

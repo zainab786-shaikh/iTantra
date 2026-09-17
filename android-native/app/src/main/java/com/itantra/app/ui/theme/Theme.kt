@@ -3,30 +3,27 @@ package com.itantra.app.ui.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-/**
- * The product is dark-first by design (iTantra Design.md §2.1), not
- * dark-mode-as-a-preference, so unlike a typical Material app this scheme
- * has no light variant and does not branch on system theme.
- */
-private val ITantraColorScheme = darkColorScheme(
-    primary = AppColor.Primary,
-    onPrimary = AppColor.Void,
-    secondary = AppColor.Accent,
-    onSecondary = AppColor.Void,
-    background = AppColor.Void,
-    onBackground = AppColor.Text,
-    surface = AppColor.Surface,
-    onSurface = AppColor.Text,
-    surfaceVariant = AppColor.SurfaceRaised,
-    onSurfaceVariant = AppColor.TextMuted,
-    error = AppColor.Danger,
-    onError = AppColor.Void,
-    outline = AppColor.Hairline,
-    outlineVariant = AppColor.HairlineStrong,
+private fun getITantraColorScheme(colors: AppColors) = darkColorScheme(
+    primary = colors.Primary,
+    onPrimary = colors.Void,
+    secondary = colors.Accent,
+    onSecondary = colors.Void,
+    background = colors.Void,
+    onBackground = colors.Text,
+    surface = colors.Surface,
+    onSurface = colors.Text,
+    surfaceVariant = colors.SurfaceRaised,
+    onSurfaceVariant = colors.TextMuted,
+    error = colors.Danger,
+    onError = colors.Void,
+    outline = colors.Hairline,
+    outlineVariant = colors.HairlineStrong,
 )
 
 // Typography scale per iTantra Design.md §3 (screen title 28-32/600, section
@@ -42,9 +39,15 @@ private val ITantraTypography = Typography().let { base ->
 }
 
 @Composable
-fun ITantraTheme(content: @Composable () -> Unit) {
+fun ITantraTheme(isDarkTheme: Boolean = true, content: @Composable () -> Unit) {
+    val colors = if (isDarkTheme) DarkAppColors else LightAppColors
+    
+    LaunchedEffect(colors) {
+        AppColor.update(colors)
+    }
+
     MaterialTheme(
-        colorScheme = ITantraColorScheme,
+        colorScheme = getITantraColorScheme(colors),
         typography = ITantraTypography,
         content = content,
     )

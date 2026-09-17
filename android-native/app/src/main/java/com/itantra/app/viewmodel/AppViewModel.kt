@@ -95,6 +95,14 @@ class AppViewModel @JvmOverloads constructor(
     )
     private val transport: Transport = throttled
 
+    private val _isDarkTheme = MutableStateFlow(prefs.getBoolean(KEY_DARK_THEME, true))
+    val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
+
+    fun setDarkTheme(dark: Boolean) {
+        _isDarkTheme.value = dark
+        prefs.edit().putBoolean(KEY_DARK_THEME, dark).apply()
+    }
+
     /** Non-null only when the active transport has an address to configure. */
     val link: LinkControl? = udp
 
@@ -197,6 +205,7 @@ class AppViewModel @JvmOverloads constructor(
         /** Phase 14.2: the longest the voice warm-up waits for the speech model to finish loading. */
         const val STARTUP_WARMUP_WAIT_MS = 20_000L
         const val KEY_THROTTLE_ON = "throttle-on"
+        const val KEY_DARK_THEME = "dark-theme"
 
         /** PSK provisioned at pairing (`packet §6.7`): 64 hex digits in the app's files dir. */
         const val PSK_FILE = "itantra-psk.hex"
